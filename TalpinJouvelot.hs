@@ -267,9 +267,7 @@ gen k env eff t = let tvs = inEnvAndEff ftv
                  
 -- * Inference algorithm
 
-type Observables = ()
-                 
-infer :: TyEnv -> Constrs -> Expr -> State [Ident] (Subst Type,  Type, Observables, Constrs)
+infer :: TyEnv -> Constrs -> Expr -> State [Ident] (Subst Type, Type, Effect, Constrs)
 infer env k e = do (subst, t, effs, k') <- infer' env k e
                    return (subst, t, error "Observe", k')
                  
@@ -280,11 +278,12 @@ infer' env k (Var x)
              return (idSubst, t', S.empty, k `S.union` k')
     | otherwise = error "unbound variable"
 infer' env k (Abs x e)
-    = do a <- fresh
-         z <- fresh
-         (subst, t, eff, k) <- infer (M.insert x a env) k e
-         return (subst, TyFun (subst $@ a) (EffVar z) t, S.empty, k' `S.union` S.singleton (eff :<: EffVar z))
-
+    = do _a <- fresh
+         _z <- fresh
+         let a = TypeScheme [] [] [] (TyVar _a) S.empty
+         let z = S.singleton (EffVar _z)
+         (subst, t, eff, k') <- infer (M.insert x a env) k e
+         return (subst, TyFun (subst $@ (TyVar _a)) z t, S.empty, k' `S.union` S.singleton (eff :<: z))
 
 -- | Monadic helpers
 
