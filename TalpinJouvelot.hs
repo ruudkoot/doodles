@@ -91,10 +91,16 @@ data TypeScheme
     deriving (Eq, Show)
     
 data Constr
-    = Effect :<: Effect
+    = Effect :>: Effect
     deriving (Eq, Ord, Show)
 
 type Constrs = S.Set Constr
+
+-- * Effects 
+
+getEffVar eff
+    | S.size eff == 1, EffVar e <- S.findMin eff = e
+    | otherwise = error "not an effect variable"
 
 -- * Free variables
 
@@ -178,100 +184,102 @@ instance FreeVars TypeScheme where -- FIXME: check this
         = (fev t `S.union` fev k) `S.difference` (S.fromList evs)
         
 instance FreeVars Constr where
-    ftv (e :<: e') = ftv e `S.union` ftv e'
-    frv (e :<: e') = frv e `S.union` frv e'
-    fev (e :<: e') = fev e `S.union` fev e'
+    ftv (e :>: e') = ftv e `S.union` ftv e'
+    frv (e :>: e') = frv e `S.union` frv e'
+    fev (e :>: e') = fev e `S.union` fev e'
     
 -- * Substitutions
 
-type Subst s = M.Map Ident s
+data Subst = Subst
+    { tv_ :: M.Map Ident Type
+    , rv_ :: M.Map Ident Region    -- Always a RegVar?
+    , ev_ :: M.Map Ident Effect    -- Always an EffVar?
+    }
 
-idSubst = M.empty
+idSubst = Subst M.empty M.empty M.empty
+
+infixr 9 $.
+
+($.) :: Subst -> Subst -> Subst
+s2 $. s1 = (s2 $@ s1) `substUnion` s2
+    where 
+        substUnion (Subst tv1 rv1 ev1) (Subst tv2 rv2 ev2)
+            = Subst (M.unionWith undefined tv1 tv2)
+                    (M.unionWith undefined rv1 rv2)
+                    (M.unionWith undefined ev1 ev2)
+        
+($\) :: Subst -> [Ident] -> Subst
+(Subst { tv_ = tv, rv_ = rv, ev_ = ev }) $\ vs
+    = Subst { tv_ = prune tv, rv_ = prune rv, ev_ = prune ev }
+        where prune m = foldr M.delete m vs
     
-class Substitute s t where
-    ($@) :: Subst s -> t -> t
+class Substitute t where
+    ($@) :: Subst -> t -> t
     
-instance Substitute Type Type where
-    subst $@ (TyVar a)      | Just t <- M.lookup a subst = t
+instance Substitute Subst where
+    subst $@ (Subst tv rv ev) = Subst (M.map (subst $@) tv)
+                                      (M.map (subst $@) rv)
+                                      (M.map (subst $@) ev)
+    
+instance Substitute Type where
+    subst $@ (TyVar a)      | Just t <- M.lookup a (tv_ subst) = t
     subst $@ (TyRef r t)    = TyRef r (subst $@ t)
     subst $@ (TyFun t s t') = TyFun (subst $@ t) (subst $@ s) (subst $@ t')
     _     $@ x              = x
 
-instance Substitute Region Type where
-    subst $@ (TyRef r t)    = TyRef r (subst $@ t)
-    subst $@ (TyFun t s t') = TyFun (subst $@ t) (subst $@ s) (subst $@ t')
-    _     $@ x              = x
-
-instance Substitute EffectElem Type where
-    subst $@ (TyRef r t)    = TyRef r (subst $@ t)
-    subst $@ (TyFun t s t') = TyFun (subst $@ t) (subst $@ s) (subst $@ t')
-    _     $@ x              = x
-    
-instance Substitute Type Region where
+instance Substitute Region where
+    subst $@ (RegVar v) | Just r <- M.lookup v (rv_ subst) = r
     _     $@ x          = x
 
-instance Substitute Region Region where
-    subst $@ (RegVar v) | Just r <- M.lookup v subst = r
-    _     $@ x          = x
+instance Substitute Effect where
+    subst $@ eff = flattenSetOfSets (S.map substElem eff)
+        where substElem (EffVar s)  | Just eff <- M.lookup s (ev_ subst) = eff
+              substElem (Init  r t) = S.singleton (Init  (subst $@ r) (subst $@ t))
+              substElem (Read  r t) = S.singleton (Read  (subst $@ r) (subst $@ t))
+              substElem (Write r t) = S.singleton (Write (subst $@ r) (subst $@ t))
+              substElem x           = S.singleton x
+    
+instance Substitute TyEnv where
+    subst $@ env = M.map (subst $@) env
 
-instance Substitute EffectElem Region where
-    _     $@ x          = x
-   
-instance Substitute Type EffectElem where
-    subst $@ (Init  r t) = Init  (subst $@ r) (subst $@ t)
-    subst $@ (Read  r t) = Read  (subst $@ r) (subst $@ t)
-    subst $@ (Write r t) = Write (subst $@ r) (subst $@ t)
-    _     $@ x           = x
+instance Substitute TypeScheme where
+    subst $@ (TypeScheme tvs rvs evs t k)
+        = let rsubst = subst $\ tvs
+           in TypeScheme tvs rvs evs (rsubst $@ t) (rsubst $@ k)
+           
+instance Substitute Constr where
+    subst $@ (z :>: s) = (subst $@ z) :>: (subst $@ s)
     
-instance Substitute Region EffectElem where
-    subst $@ (Init  r t) = Init  (subst $@ r) (subst $@ t)
-    subst $@ (Read  r t) = Read  (subst $@ r) (subst $@ t)
-    subst $@ (Write r t) = Write (subst $@ r) (subst $@ t)
-    _     $@ x           = x
-    
-instance Substitute EffectElem EffectElem where
-    subst $@ (EffVar s)  | Just eff <- M.lookup s subst = eff
-    subst $@ (Init  r t) = Init  (subst $@ r) (subst $@ t)
-    subst $@ (Read  r t) = Read  (subst $@ r) (subst $@ t)
-    subst $@ (Write r t) = Write (subst $@ r) (subst $@ t)
-    _     $@ x           = x
-
-instance Substitute Type Effect where
-    subst $@ eff = S.map (subst $@) eff
-    
-instance Substitute Region Effect where
-    subst $@ eff = S.map (subst $@) eff
-    
-instance Substitute EffectElem Effect where
-    subst $@ eff = S.map (subst $@) eff
+instance Substitute Constrs where
+    subst $@ k = S.map (subst $@) k
 
 -- * Instantiation
 
 inst :: TypeScheme -> State [Ident] (Type, Constrs)
 inst (TypeScheme tvs rvs evs t k)
-    = do tsubst <- freshSubst tvs TyVar
-         rsubst <- freshSubst tvs RegVar
-         esubst <- freshSubst tvs EffVar
-         return (esubst $@ (rsubst $@ (tsubst $@ t)), k) --FIXME: subst k
+    = do tvs' <- freshSubst tvs TyVar
+         rvs' <- freshSubst tvs RegVar
+         evs' <- freshSubst tvs (S.singleton . EffVar)
+         return (Subst tvs' rvs' evs' $@ t, k) --FIXME: subst k
     
 -- * Generalization
     
-gen :: Constrs -> TyEnv -> Effect -> Type -> TypeScheme
+gen :: Constrs -> TyEnv -> Effect -> Type -> (TypeScheme, Constrs)
 gen k env eff t = let tvs = inEnvAndEff ftv
                       rvs = inEnvAndEff frv
                       evs = inEnvAndEff fev
-                   in TypeScheme tvs rvs evs t k
+                   in (TypeScheme tvs rvs evs t k, undefined)
     where
         inEnvAndEff :: (forall t. FreeVars t => t -> S.Set Ident) -> [Ident]
         inEnvAndEff fv = S.toList (fv t `S.difference` (fv env `S.union` fv eff))
                  
 -- * Inference algorithm
 
-infer :: TyEnv -> Constrs -> Expr -> State [Ident] (Subst Type, Type, Effect, Constrs)
+infer :: TyEnv -> Constrs -> Expr -> State [Ident] (Subst, Type, Effect, Constrs)
 infer env k e = do (subst, t, effs, k') <- infer' env k e
                    return (subst, t, error "Observe", k')
                  
-infer' :: TyEnv -> Constrs -> Expr -> State [Ident] (Subst Type, Type, Effect, Constrs)
+infer' :: TyEnv -> Constrs -> Expr -> State [Ident] (Subst, Type, Effect, Constrs)
 infer' env k (Var x)
     | Just sigma <- M.lookup x env
         = do (t', k') <- inst sigma
@@ -283,20 +291,89 @@ infer' env k (Abs x e)
          let a = TypeScheme [] [] [] (TyVar _a) S.empty
          let z = S.singleton (EffVar _z)
          (subst, t, eff, k') <- infer (M.insert x a env) k e
-         return (subst, TyFun (subst $@ (TyVar _a)) z t, S.empty, k' `S.union` S.singleton (eff :<: z))
+         return (subst, TyFun (subst $@ (TyVar _a)) z t, S.empty, k' `S.union` S.singleton (z :>: eff))
+infer' env k (App e1 e2)
+    = do (subst1, t1, eff1, k1) <- infer env k e1
+         (subst2, t2, eff2, k2) <- infer (subst1 $@ env) k1 e2
+         _a <- fresh
+         _z <- fresh
+         let a = TyVar _a
+         let z = S.singleton (EffVar _z)
+         let subst3 = unify k2 (subst2 $@ t1) (TyFun t2 z a)
+         let k' = subst3 $@ k2
+         let subst = subst3 $. subst2 $. subst1
+         return (subst, subst3 $@ a, subst3 $@ (subst2 $@ eff1 `S.union` eff2 `S.union` z), k')
+infer' env k (Let x e1 e2)
+    = do (subst1, t1, eff1, k1) <- infer env k e1
+         let (scheme, k1'') = gen k1 (subst1 $@ env) eff1 t1
+         (subst2, t, eff2, k') <- infer (M.insert x scheme (subst1 $@ env)) k1'' e2
+         return (subst2 $. subst1, t, subst2 $@ eff1 `S.union` eff2, k')
 
--- | Monadic helpers
+-- * Unification
+
+unify :: Constrs -> Type -> Type -> Subst
+unify k TyUnit TyUnit
+    = idSubst
+unify k (TyVar a) (TyVar a')
+    = Subst (M.singleton a (TyVar a')) M.empty M.empty
+unify k (TyVar a) t
+    | a `S.member` ftv (bar k $@ t) = error "occurs check"
+    | otherwise                     = Subst (M.singleton a t) M.empty M.empty
+unify k t (TyVar a)
+    | a `S.member` ftv (bar k $@ t) = error "occurs check"
+    | otherwise                     = Subst (M.singleton a t) M.empty M.empty
+unify k (TyRef (RegVar r) t) (TyRef r' t')
+    = let subst = Subst M.empty (M.singleton r r') M.empty
+       in unify (subst $@ k) (subst $@ t) (subst $@ t') $. subst
+unify k (TyFun ti z tf) (TyFun ti' z' tf') -- FIXME: check if z, z' are really singleton
+    = let subst_i = unify k ti ti'
+          subst_f = unify (subst_i $@ k) (subst_i $@ tf) (subst_i $@ tf')
+          subst   = Subst M.empty M.empty (M.singleton (getEffVar (subst_f $@ subst_i $@ z)) (subst_f $@ subst_i $@ z')) $. subst_f $. subst_i
+       in if wf (subst $@ k) then subst else error "not well-formed"
+unify _ _ _
+    = error "cannot unify"
+    
+-- * Principal models
+
+bar :: Constrs -> Subst
+bar = S.foldr (\(z :>: s) r -> Subst M.empty M.empty (M.singleton (getEffVar z) (r $@ (z `S.union` s))) $. r) idSubst
+    
+-- * Well-formedness
+
+rng :: Effect -> S.Set (Region, Type)
+rng = flattenSetOfSets . S.map rng'
+    where rng' (EffVar _ ) = error "variable in range" -- S.singleton
+          rng' (Init  r t) = S.singleton (r, t)
+          rng' (Read  r t) = S.singleton (r, t)
+          rng' (Write r t) = S.singleton (r, t)
+
+wf :: Constrs -> Bool
+wf = and . S.toList . mapWithComplement f
+    where f (z :>: s) k' = and (S.toList (S.map (\(_, t) -> (getEffVar z) `S.notMember` fev t) (rng (bar k' $@ s))))
+
+-- | Helper functions
+
+-- * Fresh identifiers
 
 fresh :: State [a] a
 fresh = do (x:xs) <- get
            put xs
            return x
            
-freshSubst :: [Ident] -> (Ident -> t) -> State [Ident] (Subst t)
+freshSubst :: [Ident] -> (Ident -> t) -> State [Ident] (M.Map Ident t)
 freshSubst vs inj
     = do vs' <- replicateM (length vs) fresh
          return (M.fromList (zipWith (\v v' -> (v, inj v')) vs vs'))
-           
+
+-- * Missing
+
+mapWithComplement :: (Ord a, Ord b) => (a -> S.Set a -> b) -> S.Set a -> S.Set b
+mapWithComplement f s = S.map g s
+    where g x = let (l, r) = S.split x s in f x (l `S.union` r)
+    
+flattenSetOfSets :: Ord a => S.Set (S.Set a) -> S.Set a
+flattenSetOfSets = S.unions . S.toList
+
 -- | Samples
 
 idid = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id"))
