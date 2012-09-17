@@ -26,18 +26,17 @@ data Expr
     | Get Expr
     | Set Expr  Expr
     deriving (Eq, Show)
-    
+
+-- | Dynamic Semantics
+
 data Value
     = Unit
     | Ref     Ident
     | Closure Ident Expr Env
     deriving (Eq, Show)
-    
-type Env   = M.Map Ident Value
-type TyEnv = M.Map Ident TypeScheme
-type Store = M.Map Ident Value
 
--- | Dynamic Semantics
+type Env   = M.Map Ident Value
+type Store = M.Map Ident Value
 
 eval :: Store -> Env -> Expr -> State [Ident] (Value, Store)
 eval s env (Var x)      | Just v <- M.lookup x env = return (v, s)
@@ -74,6 +73,8 @@ data Type
 data TypeScheme
     = TypeScheme [Ident] [Ident] [Ident] Type Constrs
     deriving (Eq, Show)
+
+type TyEnv = M.Map Ident TypeScheme
 
 data Region
     = RegCon Ident
