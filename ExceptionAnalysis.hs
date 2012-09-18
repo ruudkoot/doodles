@@ -181,7 +181,7 @@ unify t (TyVar a)
 unify (TyFun ti le tf) (TyFun ti' le' tf') -- FIXME: check if le, le' are singleton
     = let subst_i = unify ti ti'
           subst_f = unify (subst_i $@ tf) (subst_i $@ tf')
-          subst   = Subst M.empty (M.singleton (getAnnVar (subst_f $@ subst_i $@ le)) (subst_f $@ subst_i $@ le')) $. subst_f $. subst_i
+          subst   = Subst M.empty (M.singleton (getAnnVar (subst_f $@ subst_i $@ le)) (subst_f $@ subst_i $@ le')) $. subst_f $. subst_i -- FIXME: Should tv_ be M.empty??
        in subst
 unify _ _
     = error "cannot unify"
