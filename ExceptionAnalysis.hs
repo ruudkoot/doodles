@@ -27,12 +27,12 @@ data Expr
     | If Expr Expr Expr
     | Let Ident Expr Expr
 --  | Op Expr Op Expr
-    -- Intermediate expressions
-    | Bind TyEnv Expr
-    | Close Expr TyEnv
     -- Exceptions
     | Raise Exception
     | Handle Exception Expr Expr
+    -- Intermediate expressions
+    | Bind TyEnv Expr
+    | Close Expr TyEnv
     deriving (Eq, Show)
 
 -- | Static Semantics
