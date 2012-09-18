@@ -223,7 +223,7 @@ example name ex
     = do putStrLn ("\\paragraph{" ++ name ++ "}")
          putStrLn "\\begin{eqnarray}"
          putStrLn (latex ex ++ newline)
-         let ((t, subst), _) = runState (infer M.empty ex3) freshIdents
+         let ((t, subst), _) = runState (infer M.empty ex) freshIdents
          putStrLn (latex t ++ newline)
          putStrLn (latex (cbv ex) ++ newline)
          putStrLn (latex (cbn ex))
