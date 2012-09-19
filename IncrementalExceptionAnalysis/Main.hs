@@ -215,35 +215,26 @@ infer env Crash
 
 -- * Effects
 
-data EffCon
-    = EffNone
+data Eff'
+    = EffVar Ident
     | EffCrash
     deriving (Eq, Ord, Show)
     
-join :: EffCon -> EffCon -> EffCon
-join EffNone EffNone = EffNone
-join _       _       = EffCrash
-
-instance LaTeX EffCon where
-    latex EffNone  = "\\emptyset"
-    latex EffCrash = "\\lightning"
-    
-data Eff
-    = EffUnif Ident
-    | EffCon  EffCon
-    deriving (Eq, Ord, Show)
+type Eff = S.Set Eff'
     
 instance Fresh Eff where
-    fresh = do a <- fresh
-               return (EffUnif a)
+    fresh = do u <- fresh
+               return (S.singleton (EffVar u))
+
+instance LaTeX Eff' where
+    latex (EffVar u) = "\\varphi" ++ u
+    latex (EffCrash) = "\\lightning"
 
 instance LaTeX Eff where
-    latex (EffUnif u) = "\\varphi" ++ u
-    latex (EffCon  c) = latex c
-    
-effcon :: Eff -> EffCon
-effcon (EffCon c) = c
-effcon _          = error "effect not a constant"
+    latex = ("\\{"++) . (++"\\}") . concat . L.intersperse ", " . map latex . S.toList
+
+join :: Eff -> Eff -> Eff
+join = S.union
 
 -- * Annotated types (call-by-value)
 
@@ -304,10 +295,9 @@ instance AnnSubstitute AnnTyEnv where
     subst $$@ env = M.map (subst $$@) env
 
 instance AnnSubstitute Eff where
-    AnnSubst _ ev $$@ (EffUnif u)
-        | Just e <- M.lookup u ev = e
-    _             $$@ x
-        = x
+    AnnSubst _ ev $$@ eff = flattenSetOfSets (S.map f eff)
+        where f (EffVar u) | Just eff' <- M.lookup u ev = eff'
+              f  EffCrash  = S.singleton EffCrash
 
 -- * Unification (call-by-value)
 
@@ -345,7 +335,7 @@ unify'' _ _
 
 -- * Inference (call-by-value)
 
-analyzeCBV :: AnnTyEnv -> Expr -> State [Ident] (AnnTy, EffCon, AnnSubst)
+analyzeCBV :: AnnTyEnv -> Expr -> State [Ident] (AnnTy, Eff, AnnSubst)
 analyzeCBV env (Var x)
     | Just t <- M.lookup x env = return (t, EffNone, idAnnSubst)
     | otherwise                = error "variable not in scope"
@@ -356,18 +346,18 @@ analyzeCBV env (Con c)
 analyzeCBV env (Abs x e0)
     = do ax <- fresh
          (t0, eff0, subst0) <- analyzeCBV (M.insert x ax env) e0
-         return (AnnTyFun (subst0 $$@ ax) (EffCon eff0) t0, EffNone, subst0)
+         return (AnnTyFun (subst0 $$@ ax) eff0 t0, EffNone, subst0)
 analyzeCBV env (App e1 e2)
     = do (t1, eff1, subst1) <- analyzeCBV env e1
          (t2, eff2, subst2) <- analyzeCBV (subst1 $$@ env) e2
          a <- fresh
          u <- fresh
          let subst3 = unify' (subst2 $$@ t1) (AnnTyFun t2 u a)
-         return (subst3 $$@ a, effcon (subst3 $$@ u) `join` eff1 `join` eff2, subst3 $$. subst2 $$. subst1)
+         return (subst3 $$@ a, subst3 $$@ u `join` eff1 `join` eff2, subst3 $$. subst2 $$. subst1)
 analyzeCBV env (Let x e1 e2)
     = do (t1, eff1, subst1) <- analyzeCBV env e1
          (t2, eff2, subst2) <- analyzeCBV (M.insert x t1 (subst1 $$@ env)) e2
-         return (t2, {- subst2 $@@ -} eff1 `join` eff2, subst2 $$. subst1)
+         return (t2, subst2 $$@ eff1 `join` eff2, subst2 $$. subst1)
 analyzeCBV env Crash
     = do a <- fresh
          return (a, EffCrash, idAnnSubst)
@@ -431,10 +421,9 @@ instance LazyAnnSubstitute LazyAnnTyEnv where
     subst $$$@ env = M.map (\(t, eff) -> (subst $$$@ t, subst $$$@ eff)) env
 
 instance LazyAnnSubstitute Eff where
-    LazyAnnSubst _ ev $$$@ (EffUnif u)
-        | Just e <- M.lookup u ev = e
-    _             $$$@ x
-        = x
+    LazyAnnSubst _ ev $$$@ eff = flattenSetOfSets (S.map f eff)
+        where f (EffVar u) | Just eff' <- M.lookup u ev = eff'
+              f  EffCrash  = S.singleton EffCrash
 
 -- * Unification (call-by-name)
 
@@ -499,6 +488,11 @@ analyzeCBN env (Let x e1 e2)
 analyzeCBN env Crash
     = do a <- fresh
          return (a, EffCrash, idLazyAnnSubst)
+         
+-- * Missing
+
+flattenSetOfSets :: Ord a => S.Set (S.Set a) -> S.Set a
+flattenSetOfSets = S.unions . S.toList
     
 -- | Examples
 
@@ -516,6 +510,8 @@ example name ex
          let ((t, subst), _) = runState (infer M.empty ex) freshIdents
          putStrLn (latex t ++ newline)
          let ((t, eff, subst), _) = runState (analyzeCBV M.empty ex) freshIdents
+         putStrLn ("(" ++ latex t ++ ", " ++ latex eff ++ ")" ++ newline)
+         let ((t, eff, subst), _) = runState (analyzeCBN M.empty ex) freshIdents
          putStrLn ("(" ++ latex t ++ ", " ++ latex eff ++ ")" ++ newline)
          putStrLn (latex (cbv ex) ++ newline)
          putStrLn (latex (cbn ex))
