@@ -15,4 +15,4 @@ instance Fresh Ident where
                put xs
                return x
                
-freshIdents = map (\n -> "\\tau_{" ++ show n ++ "}") [1..]
+freshIdents = map (\n -> "_{" ++ show n ++ "}") [1..]
