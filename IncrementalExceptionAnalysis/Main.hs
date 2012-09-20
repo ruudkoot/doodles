@@ -3,8 +3,8 @@
 
 module Main where
 
-import Control.Monad       hiding (join)
-import Control.Monad.State hiding (join)
+import Control.Monad
+import Control.Monad.State
 
 import qualified Data.List as L
 import qualified Data.Map  as M
@@ -39,10 +39,13 @@ instance LaTeX Expr where
     latex (Con (Int n     )) = show n
     latex (Abs x e         ) = "\\lambda " ++ x ++ ".\\ " ++ latex e
     latex (App e1 e2       ) = latex e1 ++ "\\ " ++ latex e2
-    latex (Let x e1 e2     ) = "\\mathbf{let}\\ " ++ x ++ "\\ \\mathbf{=}\\ " ++ latex e1 ++ "\\ \\mathbf{in}\\ " ++ latex e2
+    latex (Let x e1 e2     ) = "\\mathbf{let}\\ " ++ x
+                               ++ "\\ \\mathbf{=}\\ " ++ latex e1
+                               ++ "\\ \\mathbf{in}\\ " ++ latex e2
     latex (Crash           ) = "\\lightning"
-    latex (Close e env     ) = "\\mathbf{close}\\ " ++ latex e ++ "\\ \\mathbf{in}\\ " ++ latex env
-    
+    latex (Close e env     ) = "\\mathbf{close}\\ " ++ latex e
+                               ++ "\\ \\mathbf{in}\\ " ++ latex env
+
 -- | Dynamics
 
 type Env = M.Map Ident Expr
@@ -220,9 +223,8 @@ data Eff
     | Eff (S.Set Eff')
     deriving (Eq, Ord, Show)
     
-u2v :: Eff -> Eff'
-u2v (EffUnif u) = EffVar u
-    
+effect = S.fromList . map (\(EffUnif u) -> EffVar u)
+
 instance Fresh Eff where
     fresh = do u <- fresh
                return (EffUnif u)
@@ -234,9 +236,6 @@ instance LaTeX Eff' where
 instance LaTeX Eff where
     latex (EffUnif u) = "\\dot\\varphi" ++ u
     latex (Eff eff)   = latex eff
-
-join :: Eff -> Eff -> Eff
-join (EffUnif u1) (EffUnif u2) = Eff (S.fromList [EffVar u1, EffVar u2])
 
 -- * Constraints
 
@@ -270,7 +269,9 @@ instance LaTeX AnnTy where
     latex (AnnTyVar a        ) = "\\widehat\\tau" ++ a
     latex (AnnTyCon TyBool   ) = "\\mathbf{Bool}"
     latex (AnnTyCon TyInt    ) = "\\mathbf{Int}"
-    latex (AnnTyFun t1 eff t2) = "\\left(" ++ latex t1 ++ "\\xrightarrow{" ++ latex eff ++ "}" ++ latex t2 ++ "\\right)"
+    latex (AnnTyFun t1 eff t2) = "\\left(" ++ latex t1
+                                 ++ "\\xrightarrow{" ++ latex eff ++ "}"
+                                 ++ latex t2 ++ "\\right)"
     
 -- * Environments (call-by-value)
 
@@ -278,13 +279,7 @@ type AnnTyEnv = M.Map Ident AnnTy
 
 -- * Substitutions (call-by-value)
 
-data AnnSubst = AnnSubst (M.Map Ident AnnTy) (M.Map Ident Eff)
-
-instance LaTeX AnnSubst where
-    latex (AnnSubst tv ev)
-        | M.null tv && M.null ev = "\\epsilon"
-        | otherwise = "\\left[" ++ f "\\widehat\\tau" tv ++ "; " ++ f "\\dot\\varphi" ev ++ "\\right]"
-            where f prefix = L.intercalate ", " . map (\(k, v) -> prefix ++ latex k ++ "\\mapsto" ++ latex v) . M.toList
+data AnnSubst = AnnSubst  (M.Map Ident AnnTy) (M.Map Ident Ident)
 
 idAnnSubst :: AnnSubst
 idAnnSubst = AnnSubst M.empty M.empty
@@ -295,13 +290,42 @@ s2 $$. s1 = (s2 $$@ s1) `substUnion` s2
         substUnion (AnnSubst tv1 ev1) (AnnSubst tv2 ev2)
             = AnnSubst (M.unionWith (error "type variables not distinct") tv1 tv2)
                        (M.unionWith (error "effect variables not distinct") ev1 ev2)
-                    
+
+data AnnSubst' = AnnSubst' (M.Map Ident Eff)
+
+idAnnSubst' :: AnnSubst'
+idAnnSubst' = AnnSubst' M.empty
+
+($$.#) :: AnnSubst' -> AnnSubst' -> AnnSubst'
+s2 $$.# s1 = (s2 $$@# s1) `substUnion` s2
+    where 
+        substUnion (AnnSubst' ev1) (AnnSubst' ev2)
+            = AnnSubst' (M.unionWith (error "effect variables not distinct") ev1 ev2)
+
+instance LaTeX AnnSubst where
+    latex (AnnSubst tv ev)
+        | M.null tv && M.null ev = "\\epsilon"
+        | otherwise = "\\left[" ++ f "\\widehat\\tau" "" tv ++ "; "
+                      ++ f "\\dot\\varphi" "\\dot\\varphi" ev ++ "\\right]"
+            where f l r = L.intercalate ", " 
+                          . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
+                                              ++ r ++ latex v)
+                          . M.toList
+
 class AnnSubstitute t where
     ($$@) :: AnnSubst -> t -> t
     
+class AnnSubstitute' t where
+    ($$@#) :: AnnSubst' -> t -> t
+    
 instance AnnSubstitute AnnSubst where
-    subst $$@ (AnnSubst tv ev) = AnnSubst (M.map (subst $$@) tv) (M.map (subst $$@) ev)
-
+    subst $$@ (AnnSubst tv ev)
+        = AnnSubst (M.map (subst $$@) tv) (M.map (subst $$@) ev)
+     
+instance AnnSubstitute' AnnSubst' where
+    subst $$@# (AnnSubst' ev)
+        = AnnSubst' (M.map (subst $$@#) ev)       
+    
 instance AnnSubstitute AnnTy where
     AnnSubst tv _ $$@ (AnnTyVar a)
         | Just t <- M.lookup a tv = t
@@ -312,27 +336,27 @@ instance AnnSubstitute AnnTy where
 
 instance AnnSubstitute AnnTyEnv where
     subst $$@ env = M.map (subst $$@) env
+    
+instance AnnSubstitute Eff' where
+    AnnSubst _ ev $$@ (EffVar v) | Just u <- M.lookup v ev = EffVar u
+    _             $$@ x          = x
+
+instance AnnSubstitute Ident where
+    -- FIXME: the identifiers are assumed to be from EffUnif
+    AnnSubst _ ev $$@ u | Just u' <- M.lookup u ev = u'
+                        | otherwise                = u
 
 instance AnnSubstitute Eff where
-    AnnSubst _ ev $$@ (EffUnif u) | Just eff' <- M.lookup u ev = eff'
+    AnnSubst _ ev $$@ (EffUnif u) | Just eff' <- M.lookup u ev = EffUnif eff'
                                   | otherwise                  = EffUnif u
-    AnnSubst _ ev $$@ (Eff eff)   = Eff (flattenSetOfSets (S.map f eff))
-        where f (EffVar u) | Just (Eff eff') <- M.lookup u ev = eff'
-                           | otherwise = S.singleton (EffVar u)
-              f  EffCrash  = S.singleton EffCrash
+    subst         $$@ (Eff eff)   = Eff (S.map (subst $$@) eff)
+    
+instance AnnSubstitute' Eff where
+    subst         $$@# (Eff eff)   = undefined
 
 instance AnnSubstitute Constr' where
     subst $$@ k@(u :>: eff) = let Eff eff' = subst $$@ (Eff eff)
-                               in v2u (subst $$@ (EffUnif u)) :>: eff'
-        where v2u (Eff eff)   | S.size eff == 1, EffVar v <- S.findMin eff = v
-              v2u (EffUnif u) = u
-              
-instance AnnSubstitute Eff' where
-    AnnSubst _ ev $$@ (EffVar v) | Just (Eff eff) <- M.lookup v ev = qqq eff
-                                 | otherwise                       = EffVar v
-     where qqq eff | S.size eff == 1, EffVar v' <- S.findMin eff = EffVar v'
-                   | otherwise = error "malformed substitution"
-    _             $$@ _          = error "malformed substitution"
+                               in (subst $$@ u) :>: eff'
 
 instance AnnSubstitute Constr where
     subst $$@ k = S.map (subst $$@) k
@@ -360,7 +384,7 @@ unify' _ _
 
 unify'' :: Eff -> Eff -> AnnSubst
 unify'' (EffUnif u1) (EffUnif u2)
-    = AnnSubst M.empty (M.singleton u1 (EffUnif u2))
+    = AnnSubst M.empty (M.singleton u1 u2)
 unify'' _ _
     = error "cannot unify effects"
 
@@ -389,17 +413,17 @@ analyzeCBV env (App e1 e2)
          let subst3 = unify' (subst2 $$@ t1) (AnnTyFun t2 u a)
          u' <- fresh
          return ( subst3 $$@ a, EffUnif u', subst3 $$. subst2 $$. subst1
-                , S.singleton (u' :>: S.fromList [ subst3 $$@ (u2v u)
-                                                 , subst3 $$@ (subst2 $$@ (u2v eff1))
-                                                 , subst3 $$@             (u2v eff2)  ])
+                , S.singleton (u' :>: effect [ subst3 $$@ u
+                                             , subst3 $$@ (subst2 $$@ eff1)
+                                             , subst3 $$@             eff2 ])
                   `S.union` (subst3 $$@ (subst2 $$@ k1)) `S.union` (subst3 $$@ k2) )
 analyzeCBV env (Let x e1 e2)
     = do (t1, eff1, subst1, k1) <- analyzeCBV                            env   e1
          (t2, eff2, subst2, k2) <- analyzeCBV (M.insert x t1 (subst1 $$@ env)) e2
          u <- fresh
          return ( t2, EffUnif u, subst2 $$. subst1
-                , S.singleton (u :>: S.fromList [subst2 $$@ u2v eff1, u2v eff2])
-                  `S.union` (subst2 $$@ k1) `S.union` k2                 )
+                , S.singleton (u :>: effect [subst2 $$@ eff1, eff2])
+                 `S.union` (subst2 $$@ k1) `S.union` k2              )
 analyzeCBV env Crash
     = do a <- fresh
          u <- fresh
@@ -528,10 +552,10 @@ analyzeCBN env Crash
 -}
 
 -- | Constraint solver (call-by-value, Talpin and Jouvelot style)
-
+{-
 bar :: Constr -> AnnSubst
 bar = S.foldr (\(u :>: eff) r -> AnnSubst M.empty (M.singleton u (r $$@ (Eff (S.singleton (EffVar u) `S.union` eff)))) $$. r) idAnnSubst
-
+-}
 -- | Missing
 
 flattenSetOfSets :: Ord a => S.Set (S.Set a) -> S.Set a
@@ -554,7 +578,7 @@ example name ex
          putStrLn (latex t ++ newline)
          let ((t, eff, subst, k), _) = runState (analyzeCBV M.empty ex) freshIdents
          putStrLn ("\\left(" ++ latex t ++ ", " ++ latex eff ++ ", " ++ latex subst ++ ", " ++ latex k ++ "\\right)" ++ newline)
-         let kbar = bar k
+{-       let kbar = bar k
          putStrLn (latex kbar ++ newline)
          let Eff eff' = bar k $$@ eff
          let sol = S.filter f eff'
@@ -563,7 +587,7 @@ example name ex
          putStrLn ("\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline)
 --       let ((t, eff, subst, k), _) = runState (analyzeCBN M.empty ex) freshIdents
 --       putStrLn ("(" ++ latex t ++ ", " ++ latex eff ++ ")" ++ newline)
-         putStrLn (latex (cbv ex) ++ newline)
+-}       putStrLn (latex (cbv ex) ++ newline)
          putStrLn (latex (cbn ex))
          putStrLn "\\end{gather}"
 
