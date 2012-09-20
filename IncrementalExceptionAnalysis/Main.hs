@@ -232,7 +232,7 @@ instance LaTeX Eff' where
     latex (EffCrash) = "\\lightning"
 
 instance LaTeX Eff where
-    latex (EffUnif u) = "\\zeta" ++ u
+    latex (EffUnif u) = "\\dot\\varphi" ++ u
     latex (Eff eff)   = latex eff
 
 join :: Eff -> Eff -> Eff
@@ -247,7 +247,7 @@ data Constr'
 type Constr = S.Set Constr'
 
 instance LaTeX Constr' where
-    latex (u :>: eff) = "\\zeta" ++ u ++ "\\supseteq" ++ latex eff
+    latex (u :>: eff) = "\\dot\\varphi" ++ u ++ "\\supseteq" ++ latex eff
 
 -- * Annotated types (call-by-value)
 
@@ -283,7 +283,7 @@ data AnnSubst = AnnSubst (M.Map Ident AnnTy) (M.Map Ident Eff)
 instance LaTeX AnnSubst where
     latex (AnnSubst tv ev)
         | M.null tv && M.null ev = "\\epsilon"
-        | otherwise = "\\left[" ++ f "\\tau" tv ++ "; " ++ f "\\zeta" ev ++ "\\right]"
+        | otherwise = "\\left[" ++ f "\\widehat\\tau" tv ++ "; " ++ f "\\dot\\varphi" ev ++ "\\right]"
             where f prefix = L.intercalate ", " . map (\(k, v) -> prefix ++ latex k ++ "\\mapsto" ++ latex v) . M.toList
 
 idAnnSubst :: AnnSubst

@@ -17,8 +17,14 @@ instance (LaTeX k, LaTeX v) => LaTeX (M.Map k v) where
     latex m | M.null m  = "\\epsilon"
             | otherwise = ("\\left["++) . (++"\\right]") . L.intercalate ", " . map (\(k, v) -> latex k ++ "\\mapsto" ++ latex v) . M.toList $ m
 
+
 instance LaTeX a => LaTeX (S.Set a) where
     latex = ("\\left\\{"++) . (++"\\right\\}") . L.intercalate ", " . map latex . S.toList
+
+{-
+instance LaTeX a => LaTeX (S.Set a) where
+    latex = L.intercalate " \\cup " . map latex . S.toList
+-}
 
 preamble  =  "\\documentclass{article}\n"
           ++ "\\usepackage{amsmath}\n"
