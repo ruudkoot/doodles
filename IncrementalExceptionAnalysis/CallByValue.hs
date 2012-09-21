@@ -202,6 +202,15 @@ infer env (If e0 e1 e2)
          (t1, eff1, subst1, k1) <- infer (subst0 $@ env) e1
          (t2, eff2, subst2, k2) <- infer (subst1 $@ subst0 #@ env) e2
          let subst3 = unify (subst2 $@ subst1 $@ t0) (TyCon TyBool)
+         let subst4 = unify (subst3 $@ t2) (subst3 $@ subst2 $@ t1)
+         u <- fresh
+         return ( subst4 $@ subst3 $@ t2, u
+                , subst4 $. subst3 $. subst3 $. subst2 $. subst1 $. subst0
+                , S.singleton (u :>: effect [subst4 $@ subst3 $@ subst2 $@ subst1 $@ eff0
+                                            ,subst4 $@ subst3 $@ subst2 $@ eff1
+                                            ,subst4 $@ subst3 $@ eff2])
+                  `S.singleton` subst4 
+                  
 infer env (Let x e1 e2)
     = do (t1, eff1, subst1, k1) <- infer                           env   e1
          (t2, eff2, subst2, k2) <- infer (M.insert x t1 (subst1 $@ env)) e2
