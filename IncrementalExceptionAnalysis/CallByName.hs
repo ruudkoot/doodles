@@ -49,39 +49,100 @@ type TyEnv = M.Map Ident (Ty, Eff)
 
 -- | Substitutions
 
-data Subst = Subst (M.Map Ident Ty) (M.Map Ident Ident)
+data Subst  = Subst  (M.Map Ident Ty) (M.Map Ident Ident)
+data Subst' = Subst'                  (M.Map Ident Eff  )
 
 idSubst :: Subst
 idSubst = Subst M.empty M.empty
+
+idSubst' :: Subst'
+idSubst' = Subst' M.empty
 
 ($.) :: Subst -> Subst -> Subst
 s2 $. s1 = (s2 $@ s1) `substUnion` s2
     where 
         substUnion (Subst tv1 ev1) (Subst tv2 ev2)
-            = Subst (M.unionWith (error "type variables not distinct") tv1 tv2)
-                           (M.unionWith (error "effect variables not distinct") ev1 ev2)
-                    
+            = Subst (M.unionWith (error "type variables not distinct"  ) tv1 tv2)
+                    (M.unionWith (error "effect variables not distinct") ev1 ev2)
+
+($*.) :: Subst' -> Subst' -> Subst'
+s2 $*. s1 = (s2 $*@ s1) `substUnion` s2
+    where 
+        substUnion (Subst' ev1) (Subst' ev2)
+            = Subst' (M.unionWith (error "effect variables not distinct") ev1 ev2)
+
+instance LaTeX Subst where
+    latex (Subst tv ev)
+        | M.null tv && M.null ev = "\\epsilon"
+        | otherwise = "\\left[" ++ f "\\widehat\\tau" "" tv ++ "; "
+                      ++ f "\\dot\\varphi" "\\dot\\varphi" ev ++ "\\right]"
+            where f l r = L.intercalate ", " 
+                          . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
+                                              ++ r ++ latex v)
+                          . M.toList
+
+instance LaTeX Subst' where
+    latex (Subst' ev)
+        | M.null ev = "\\epsilon"
+        | otherwise = "\\left[" ++ f "\\dot\\varphi" "" ev ++ "\\right]"
+            where f l r = L.intercalate ", " 
+                          . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
+                                              ++ r ++ latex v)
+                          . M.toList
+
 class Substitute t where
     ($@) :: Subst -> t -> t
     
+class Substitute' t where
+    ($*@) :: Subst' -> t -> t
+    
 instance Substitute Subst where
-    subst $@ (Subst tv ev) = Subst (M.map (subst $@) tv) (M.map (subst $@) ev)
+    subst $@ (Subst tv ev)
+        = Subst (M.map (subst $@) tv) (M.map (subst $@) ev)
+     
+instance Substitute' Subst' where
+    subst $*@ (Subst' ev)
+        = Subst' (M.map (subst $*@) ev)
 
 instance Substitute Ty where
     Subst tv _ $@ (TyVar a)
         | Just t <- M.lookup a tv = t
-    subst             $@ (TyFun t eff t' eff')
+    subst      $@ (TyFun t eff t' eff')
         = TyFun (subst $@ t) (subst $@ eff) (subst $@ t') (subst $@ eff')
-    _                 $@ x
+    _          $@ x
         = x
 
 instance Substitute TyEnv where
     subst $@ env = M.map (\(t, eff) -> (subst $@ t, subst $@ eff)) env
 
+instance Substitute Eff' where
+    Subst _ ev $@ (EffVar v) | Just u <- M.lookup v ev = EffVar u
+    _          $@ x          = x
+
+instance Substitute Ident where
+    -- FIXME: the identifiers are assumed to be from EffUnif
+    Subst _ ev $@ u | Just u' <- M.lookup u ev = u'
+                    | otherwise                = u
+
 instance Substitute Eff where
-    Subst _ ev $@ eff = flattenSetOfSets (S.map f eff)
-        where f (EffVar u) | Just eff' <- M.lookup u ev = eff'
-              f  EffCrash  = S.singleton EffCrash
+    Subst _ ev $@ (EffUnif u) | Just eff' <- M.lookup u ev = EffUnif eff'
+                              | otherwise                  = EffUnif u
+    subst      $@ (Eff eff)   = Eff (S.map (subst $@) eff)
+
+instance Substitute' Eff where
+    Subst' ev $*@ (EffUnif u) | Just eff' <- M.lookup u ev = eff'
+                              | otherwise                  = error "non-covering substitution"
+    Subst' ev $*@ (Eff eff) = Eff (flattenSetOfSets (S.map f eff))
+      where f (EffVar u) | Just (Eff eff') <- M.lookup u ev = eff'
+                         | otherwise = S.singleton (EffVar u)
+            f  EffCrash  = S.singleton EffCrash
+
+instance Substitute Constr' where
+    subst $@ k@(u :>: eff) = let Eff eff' = subst $@ (Eff eff)
+                              in (subst $@ u) :>: eff'
+
+instance Substitute Constr where
+    subst $@ k = S.map (subst $@) k
 
 -- | Unification
 
@@ -107,36 +168,47 @@ unify _ _
 
 unify' :: Eff -> Eff -> Subst
 unify' (EffUnif u1) (EffUnif u2)
-    = Subst M.empty (M.singleton u1 (EffUnif u2))
+    = Subst M.empty (M.singleton u1 u2)
 unify' _ _
     = error "cannot unify effects"
 
 -- | Inference
 
-infer :: TyEnv -> Expr -> State [Ident] (Ty, EffCon, Subst)
+infer :: TyEnv -> Expr -> State [Ident] (Ty, Eff, Subst, Constr)
 infer env (Var x)
-    | Just (t, eff) <- M.lookup x env = return (t, effcon eff, idSubst)
+    | Just (t, eff) <- M.lookup x env = return (t, eff, idSubst, S.empty)
     | otherwise                       = error "variable not in scope"
 infer env (Con c)
-    = case c of
-        Bool _ -> return (TyCon TyBool, EffNone, idSubst)
-        Int  _ -> return (TyCon TyInt, EffNone, idSubst)
+    = do u <- fresh
+         case c of
+            Bool _ -> return (TyCon TyBool, u, idSubst, S.empty)
+            Int  _ -> return (TyCon TyInt , u, idSubst, S.empty)
 infer env (Abs x e0)
     = do a <- fresh
          u <- fresh
-         (t0, eff0, subst0) <- infer (M.insert x (a, u) env) e0
-         return (TyFun (subst0 $@ a) (subst0 $@ u) t0 (EffCon eff0), EffNone, subst0)
+         (t0, eff0, subst0, k0) <- infer (M.insert x (a, u) env) e0
+         u' <- fresh
+         return (TyFun (subst0 $@ a) (subst0 $@ u) t0 eff0, u', subst0, k0)
 infer env (App e1 e2)
-    = do (t1, eff1, subst1) <- infer env e1
-         (t2, eff2, subst2) <- infer (subst1 $@ env) e2
+    = do (t1, eff1, subst1, k1) <- infer            env  e1
+         (t2, eff2, subst2, k2) <- infer (subst1 $@ env) e2
          a <- fresh
          u <- fresh
-         let subst3 = unify (subst2 $@ t1) (TyFun t2 (EffCon eff2) a u)
-         return (subst3 $@ a, effcon u `join` {- subst $@@ -} eff1, subst3 $. subst2 $. subst1)
+         let subst3 = unify (subst2 $@ t1) (TyFun t2 eff2 a u)
+         u' <- fresh
+         return ( subst3 $@ a, EffUnif u', subst3 $. subst2 $. subst1
+                , S.singleton (u' :>: effect [subst3 $@ u, subst3 $@ (subst2 $@ eff1)])
+                  `S.union` (subst3 $@ k2) `S.union` (subst3 $@ (subst2 $@ k1)))
 infer env (Let x e1 e2)
-    = do (t1, eff1, subst1) <- infer env e1
-         (t2, eff2, subst2) <- infer (M.insert x (t1, EffCon eff1) (subst1 $@ env)) e2
-         return (t2, eff2, subst2 $. subst1)
+    = do (t1, eff1, subst1, k1) <- infer                                   env   e1
+         (t2, eff2, subst2, k2) <- infer (M.insert x (t1, eff1) (subst1 $@ env)) e2
+         return (t2, eff2, subst2 $. subst1, k2 `S.union` (subst2 $@ k1))
 infer env Crash
     = do a <- fresh
-         return (a, EffCrash, idSubst)
+         u <- fresh
+         return (a, EffUnif u, idSubst, S.singleton (u :>: S.singleton EffCrash))
+
+-- | Constraint solver (Talpin and Jouvelot style)
+
+bar :: Constr -> Subst'
+bar = S.foldr (\(u :>: eff) r -> Subst' (M.singleton u (r $*@ (Eff (S.singleton (EffVar u) `S.union` eff)))) $*. r) idSubst'

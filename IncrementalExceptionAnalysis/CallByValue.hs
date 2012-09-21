@@ -83,7 +83,7 @@ instance LaTeX Subst where
 instance LaTeX Subst' where
     latex (Subst' ev)
         | M.null ev = "\\epsilon"
-        | otherwise = "\\left[" ++ f "\\dot\\varphi" "\\dot\\varphi" ev ++ "\\right]"
+        | otherwise = "\\left[" ++ f "\\dot\\varphi" "" ev ++ "\\right]"
             where f l r = L.intercalate ", " 
                           . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
                                               ++ r ++ latex v)
@@ -183,10 +183,10 @@ infer env (Con c)
             Bool _ -> return (TyCon TyBool, u, idSubst, S.empty)
             Int  _ -> return (TyCon TyInt , u, idSubst, S.empty)
 infer env (Abs x e0)
-    = do ax <- fresh
-         (t0, eff0, subst0, k0) <- infer (M.insert x ax env) e0
-         u <- fresh
-         return (TyFun (subst0 $@ ax) eff0 t0, u, subst0, k0)
+    = do a <- fresh
+         (t0, eff0, subst0, k0) <- infer (M.insert x a env) e0
+         u' <- fresh
+         return (TyFun (subst0 $@ a) eff0 t0, u', subst0, k0)
 infer env (App e1 e2)
     = do (t1, eff1, subst1, k1) <- infer            env  e1
          (t2, eff2, subst2, k2) <- infer (subst1 $@ env) e2
