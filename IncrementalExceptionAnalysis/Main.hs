@@ -311,6 +311,15 @@ instance LaTeX AnnSubst where
                           . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
                                               ++ r ++ latex v)
                           . M.toList
+                          
+instance LaTeX AnnSubst' where
+    latex (AnnSubst' ev)
+        | M.null ev = "\\epsilon"
+        | otherwise = "\\left[" ++ f "\\dot\\varphi" "\\dot\\varphi" ev ++ "\\right]"
+            where f l r = L.intercalate ", " 
+                          . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
+                                              ++ r ++ latex v)
+                          . M.toList
 
 class AnnSubstitute t where
     ($$@) :: AnnSubst -> t -> t
@@ -352,7 +361,12 @@ instance AnnSubstitute Eff where
     subst         $$@ (Eff eff)   = Eff (S.map (subst $$@) eff)
     
 instance AnnSubstitute' Eff where
-    subst         $$@# (Eff eff)   = undefined
+    AnnSubst' ev $$@# (EffUnif u) | Just eff' <- M.lookup u ev = eff'
+                                  | otherwise                  = error "non-covering substitution"
+    AnnSubst' ev $$@# (Eff eff)   = Eff (flattenSetOfSets (S.map f eff))
+      where f (EffVar u) | Just (Eff eff') <- M.lookup u ev = eff'
+                         | otherwise = S.singleton (EffVar u)
+            f  EffCrash  = S.singleton EffCrash
 
 instance AnnSubstitute Constr' where
     subst $$@ k@(u :>: eff) = let Eff eff' = subst $$@ (Eff eff)
@@ -552,10 +566,10 @@ analyzeCBN env Crash
 -}
 
 -- | Constraint solver (call-by-value, Talpin and Jouvelot style)
-{-
-bar :: Constr -> AnnSubst
-bar = S.foldr (\(u :>: eff) r -> AnnSubst M.empty (M.singleton u (r $$@ (Eff (S.singleton (EffVar u) `S.union` eff)))) $$. r) idAnnSubst
--}
+
+bar :: Constr -> AnnSubst'
+bar = S.foldr (\(u :>: eff) r -> AnnSubst' (M.singleton u (r $$@# (Eff (S.singleton (EffVar u) `S.union` eff)))) $$.# r) idAnnSubst'
+
 -- | Missing
 
 flattenSetOfSets :: Ord a => S.Set (S.Set a) -> S.Set a
@@ -578,16 +592,16 @@ example name ex
          putStrLn (latex t ++ newline)
          let ((t, eff, subst, k), _) = runState (analyzeCBV M.empty ex) freshIdents
          putStrLn ("\\left(" ++ latex t ++ ", " ++ latex eff ++ ", " ++ latex subst ++ ", " ++ latex k ++ "\\right)" ++ newline)
-{-       let kbar = bar k
+         let kbar = bar k
          putStrLn (latex kbar ++ newline)
-         let Eff eff' = bar k $$@ eff
+         let Eff eff' = bar k $$@# eff
          let sol = S.filter f eff'
                     where f EffCrash = True
                           f _        = False
          putStrLn ("\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline)
 --       let ((t, eff, subst, k), _) = runState (analyzeCBN M.empty ex) freshIdents
 --       putStrLn ("(" ++ latex t ++ ", " ++ latex eff ++ ")" ++ newline)
--}       putStrLn (latex (cbv ex) ++ newline)
+         putStrLn (latex (cbv ex) ++ newline)
          putStrLn (latex (cbn ex))
          putStrLn "\\end{gather}"
 
