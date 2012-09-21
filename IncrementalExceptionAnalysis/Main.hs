@@ -78,4 +78,6 @@ ex7 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") Crash) (
 ex8 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Bool True))) Crash)
 ex9 = Let "suspendedcrash" (Abs "x" Crash) (Var "suspendedcrash")
 ex10 = Let "suspendedcrash" (Abs "x" Crash) (App (Var "suspendedcrash") (Con (Bool True)))
+ex11 = If Crash (Con (Bool True)) (Con (Bool False))
+ex12 = If (Con (True)) (Con (Bool False)) Crash
 exP = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id")) -- needs let-polymorphism

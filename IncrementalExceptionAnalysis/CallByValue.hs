@@ -48,6 +48,11 @@ type TyEnv = M.Map Ident Ty
 
 -- | Substitutions
 
+infixr 0 $@
+infixr 0 $*@
+infixr 9 $.
+infixr 9 $*.
+
 data Subst  = Subst  (M.Map Ident Ty) (M.Map Ident Ident)
 data Subst' = Subst'                  (M.Map Ident Eff  )
 
@@ -61,33 +66,25 @@ idSubst' = Subst' M.empty
 s2 $. s1 = (s2 $@ s1) `substUnion` s2
     where 
         substUnion (Subst tv1 ev1) (Subst tv2 ev2)
-            = Subst (M.unionWith (error "type variables not distinct"  ) tv1 tv2)
-                    (M.unionWith (error "effect variables not distinct") ev1 ev2)
+            = Subst (M.unionWith (error "domains not distinct") tv1 tv2)
+                    (M.unionWith (error "domains not distinct") ev1 ev2)
 
 ($*.) :: Subst' -> Subst' -> Subst'
 s2 $*. s1 = (s2 $*@ s1) `substUnion` s2
     where 
         substUnion (Subst' ev1) (Subst' ev2)
-            = Subst' (M.unionWith (error "effect variables not distinct") ev1 ev2)
+            = Subst' (M.unionWith (error "domains not distinct") ev1 ev2)
 
 instance LaTeX Subst where
     latex (Subst tv ev)
         | M.null tv && M.null ev = "\\epsilon"
-        | otherwise = "\\left[" ++ f "\\widehat\\tau" "" tv ++ "; "
-                      ++ f "\\dot\\varphi" "\\dot\\varphi" ev ++ "\\right]"
-            where f l r = L.intercalate ", " 
-                          . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
-                                              ++ r ++ latex v)
-                          . M.toList
+        | otherwise = "\\left[" ++ mapsto "\\widehat\\tau" "" tv ++ "; "
+                      ++ mapsto "\\dot\\varphi" "\\dot\\varphi" ev ++ "\\right]"
 
 instance LaTeX Subst' where
     latex (Subst' ev)
         | M.null ev = "\\epsilon"
-        | otherwise = "\\left[" ++ f "\\dot\\varphi" "" ev ++ "\\right]"
-            where f l r = L.intercalate ", " 
-                          . map (\(k, v) -> l ++ latex k ++ "\\mapsto"
-                                              ++ r ++ latex v)
-                          . M.toList
+        | otherwise = "\\left[" ++ mapsto "\\dot\\varphi" "" ev ++ "\\right]"
 
 class Substitute t where
     ($@) :: Subst -> t -> t
@@ -157,19 +154,19 @@ unify (TyVar a) t
 unify t (TyVar a)
     | a `S.member` ftv t = error "occurs check"
     | otherwise          = Subst (M.singleton a t) M.empty
-unify (TyFun t1 eff t2) (TyFun t'1 eff' t'2)
-    = let subst1 = unify t1 t'1
-          subst2 = unify (subst1 $@ t2) (subst1 $@ t'2)
-          subst3 = unify' eff eff'
+unify (TyFun t1 eff t2) (TyFun t1' eff' t2')
+    = let subst1 = unify' (                    eff) (eff'                   )  
+          subst2 = unify  (          subst1 $@ t1 ) (          subst1 $@ t1')
+          subst3 = unify  (subst2 $@ subst1 $@ t2 ) (subst2 $@ subst1 $@ t2')
        in subst3 $. subst2 $. subst1
 unify _ _
-    = error "cannot unify types"
+    = error "constructor clash"
 
 unify' :: Eff -> Eff -> Subst
 unify' (EffUnif u1) (EffUnif u2)
     = Subst M.empty (M.singleton u1 u2)
 unify' _ _
-    = error "cannot unify effects"
+    = error "not a simple type"
 
 -- | Inference
 
@@ -199,7 +196,12 @@ infer env (App e1 e2)
                 , S.singleton (u' :>: effect [ subst3 $@ u
                                              , subst3 $@ (subst2 $@ eff1)
                                              , subst3 $@            eff2 ])
-                  `S.union` (subst3 $@ (subst2 $@ k1)) `S.union` (subst3 $@ k2) )
+                  `S.union` (subst3 $@ subst2 $@ k1) `S.union` (subst3 $@ k2) )
+infer env (If e0 e1 e2)
+    = do (t0, eff0, subst0, k0) <- infer env e0
+         (t1, eff1, subst1, k1) <- infer (subst0 $@ env) e1
+         (t2, eff2, subst2, k2) <- infer (subst1 $@ subst0 #@ env) e2
+         let subst3 = unify (subst2 $@ subst1 $@ t0) (TyCon TyBool)
 infer env (Let x e1 e2)
     = do (t1, eff1, subst1, k1) <- infer                           env   e1
          (t2, eff2, subst2, k2) <- infer (M.insert x t1 (subst1 $@ env)) e2

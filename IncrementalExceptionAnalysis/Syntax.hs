@@ -1,6 +1,6 @@
 module Syntax where
 
-import qualified Data.Map as M
+import qualified Data.Map   as M
 import           Data.Maybe
 
 import Fresh
@@ -13,6 +13,7 @@ data Expr
     | Con Con
     | Abs Ident Expr
     | App Expr Expr
+    | If Expr Expr Expr
     | Let Ident Expr Expr
     | Crash
     | Close Expr Env
@@ -30,6 +31,9 @@ instance LaTeX Expr where
     latex (Con (Int n     )) = show n
     latex (Abs x e         ) = "\\lambda " ++ x ++ ".\\ " ++ latex e
     latex (App e1 e2       ) = latex e1 ++ "\\ " ++ latex e2
+    latex (If e0 e1 e2     ) = "\\mathbf{if}\\ " ++ latex e0
+                               ++ "\\ \\mathbf{then}\\ " ++ latex e1
+                               ++ "\\ \\mathbf{else}\\ " ++ latex e2
     latex (Let x e1 e2     ) = "\\mathbf{let}\\ " ++ x
                                ++ "\\ \\mathbf{=}\\ " ++ latex e1
                                ++ "\\ \\mathbf{in}\\ " ++ latex e2
@@ -59,6 +63,10 @@ cbv' env (App e1 e2)
         v2    -> case cbv' env e1 of
                     Crash -> Crash
                     Close (Abs x e1') env' -> cbv' (M.insert x v2 env') e1'
+cbv' env (If e0 e1 e2)
+    = case cbv' env e0 of
+        Con (Bool True ) -> cbv' env e1
+        Con (Bool False) -> cbv' env e2
 cbv' env (Let x e1 e2)
     = case cbv' env e1 of
         Crash -> Crash
@@ -67,6 +75,8 @@ cbv' env Crash
     = Crash
     
 -- Call-by-name
+-- FIXME: this Close and no Bind is weird...
+-- FIXME: if-then-else etc.
     
 cbn :: Expr -> Expr
 cbn = cbn' M.empty

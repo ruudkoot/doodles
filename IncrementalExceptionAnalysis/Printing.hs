@@ -35,3 +35,7 @@ preamble  =  "\\documentclass{article}\n"
 postamble =  "\\end{document}"
 
 newline = "\\\\"
+
+mapsto l r = L.intercalate ", " 
+             . map (\(k, v) -> l ++ latex k ++ "\\mapsto" ++ r ++ latex v)
+             . M.toList
