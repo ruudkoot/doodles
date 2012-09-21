@@ -23,6 +23,11 @@ main
          example "Example 1" ex1
          example "Example 2" ex2
          example "Example 3" ex3
+         example "Example 4" ex4
+         example "Example 5" ex5
+         example "Example 6" ex6
+         example "Example 7" ex7
+         example "Example 8" ex8
          putStrLn postamble
           
 example name ex
@@ -56,7 +61,7 @@ example name ex
          let sol = S.filter f eff'
                     where f EffCrash = True
                           f _        = False
-   --    putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline
+         putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline
          -- Evaluation
          putStrLn $ latex (cbv ex) ++ newline
          putStrLn $ latex (cbn ex)
@@ -65,4 +70,9 @@ example name ex
 ex1 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Int 3))) (Con (Bool False)))
 ex2 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Bool True))) Crash)
 ex3 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (Var "const")
-ex4 = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id")) -- needs let-polymorphism
+ex4 = (App Crash Crash)
+ex5 = (App Crash (Con (Bool True)))
+ex6 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (Var "const") Crash)
+ex7 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") Crash) (Con (Bool True)))
+ex8 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Bool True))) Crash)
+exP = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id")) -- needs let-polymorphism
