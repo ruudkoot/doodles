@@ -45,7 +45,7 @@ instance LaTeX Ty where
 
 -- | Environments
 
-type TyEnv = M.Map Ident (Ty, Eff, Constr)
+type TyEnv = M.Map Ident (Ty, Eff)
 
 -- | Substitutions
 
@@ -113,7 +113,7 @@ instance Substitute Ty where
         = x
 
 instance Substitute TyEnv where
-    subst $@ env = M.map (\(t, eff, k) -> (subst $@ t, subst $@ eff, subst $@ k)) env
+    subst $@ env = M.map (\(t, eff) -> (subst $@ t, subst $@ eff)) env
 
 instance Substitute Eff' where
     Subst _ ev $@ (EffVar v) | Just u <- M.lookup v ev = EffVar u
@@ -176,8 +176,8 @@ unify' _ _
 
 infer :: TyEnv -> Expr -> State [Ident] (Ty, Eff, Subst, Constr)
 infer env (Var x)
-    | Just (t, eff, k) <- M.lookup x env = return (t, eff, idSubst, k)
-    | otherwise                          = error "variable not in scope"
+    | Just (t, eff) <- M.lookup x env = return (t, eff, idSubst, S.empty)
+    | otherwise                       = error "variable not in scope"
 infer env (Con c)
     = do u <- fresh
          case c of
@@ -186,7 +186,7 @@ infer env (Con c)
 infer env (Abs x e0)
     = do a <- fresh
          u <- fresh
-         (t0, eff0, subst0, k0) <- infer (M.insert x (a, u, S.empty) env) e0
+         (t0, eff0, subst0, k0) <- infer (M.insert x (a, u) env) e0
          u' <- fresh
          return (TyFun (subst0 $@ a) (subst0 $@ u) t0 eff0, u', subst0, k0)
 infer env (App e1 e2)
@@ -200,8 +200,8 @@ infer env (App e1 e2)
                 , S.singleton (u' :>: effect [subst3 $@ u, subst3 $@ (subst2 $@ eff1)])
                   `S.union` (subst3 $@ k2) `S.union` (subst3 $@ (subst2 $@ k1)))
 infer env (Let x e1 e2)
-    = do (t1, eff1, subst1, k1) <- infer                                       env   e1
-         (t2, eff2, subst2, k2) <- infer (M.insert x (t1, eff1, k1) (subst1 $@ env)) e2
+    = do (t1, eff1, subst1, k1) <- infer                                   env   e1
+         (t2, eff2, subst2, k2) <- infer (M.insert x (t1, eff1) (subst1 $@ env)) e2
          return (t2, eff2, subst2 $. subst1, k2 `S.union` (subst2 $@ k1))
 infer env Crash
     = do a <- fresh

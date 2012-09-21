@@ -50,6 +50,7 @@ example name ex
                     where f EffCrash = True
                           f _        = False
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline
+         putStrLn $ latex (cbv ex) ++ newline
          -- Call-by-name
          let ((t, eff, subst, k), _) = runState (CBN.infer M.empty ex) freshIdents
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex eff ++ ", "
@@ -62,8 +63,6 @@ example name ex
                     where f EffCrash = True
                           f _        = False
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline
-         -- Evaluation
-         putStrLn $ latex (cbv ex) ++ newline
          putStrLn $ latex (cbn ex)
          putStrLn $ "\\end{gather}"
 
