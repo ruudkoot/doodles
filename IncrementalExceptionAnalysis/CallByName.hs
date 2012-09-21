@@ -130,12 +130,14 @@ instance Substitute Eff where
     subst      $@ (Eff eff)   = Eff (S.map (subst $@) eff)
 
 instance Substitute' Eff where
-    Subst' ev $*@ (EffUnif u) | Just eff' <- M.lookup u ev = eff'
-                              | otherwise                  = Eff (S.singleton (EffVar ("X" ++ u))) --error "non-covering substitution" -- FIXME: this case shoudn't be reached
     Subst' ev $*@ (Eff eff) = Eff (flattenSetOfSets (S.map f eff))
-      where f (EffVar u) | Just (Eff eff') <- M.lookup u ev = eff'
-                         | otherwise = S.singleton (EffVar u)
-            f  EffCrash  = S.singleton EffCrash
+        where f (EffVar u) | Just (Eff eff') <- M.lookup u ev = eff'
+                           | otherwise = S.singleton (EffVar u)
+              f  EffCrash  = S.singleton EffCrash
+    -- When applying kbar to eff
+    Subst' ev $*@ (EffUnif u) | Just eff' <- M.lookup u ev = eff'
+                              -- FIXME: should the following case be reachable?
+                              | otherwise                  = Eff S.empty 
 
 instance Substitute Constr' where
     subst $@ k@(u :>: eff) = let Eff eff' = subst $@ (Eff eff)

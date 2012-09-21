@@ -20,14 +20,16 @@ import qualified CallByName  as CBN
 
 main
     = do putStrLn preamble
-         example "Example 1" ex1
-         example "Example 2" ex2
-         example "Example 3" ex3
-         example "Example 4" ex4
-         example "Example 5" ex5
-         example "Example 6" ex6
-         example "Example 7" ex7
-         example "Example 8" ex8
+         example "Example 1"  ex1
+         example "Example 2"  ex2
+         example "Example 3"  ex3
+         example "Example 4"  ex4
+         example "Example 5"  ex5
+         example "Example 6"  ex6
+         example "Example 7"  ex7
+         example "Example 8"  ex8
+         example "Example 9"  ex9
+         example "Example 10" ex10
          putStrLn postamble
           
 example name ex
@@ -49,7 +51,7 @@ example name ex
          let sol = S.filter f eff'
                     where f EffCrash = True
                           f _        = False
-         putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline
+         putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline  
          putStrLn $ latex (cbv ex) ++ newline
          -- Call-by-name
          let ((t, eff, subst, k), _) = runState (CBN.infer M.empty ex) freshIdents
@@ -74,4 +76,6 @@ ex5 = (App Crash (Con (Bool True)))
 ex6 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (Var "const") Crash)
 ex7 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") Crash) (Con (Bool True)))
 ex8 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Bool True))) Crash)
+ex9 = Let "suspendedcrash" (Abs "x" Crash) (Var "suspendedcrash")
+ex10 = Let "suspendedcrash" (Abs "x" Crash) (App (Var "suspendedcrash") (Con (Bool True)))
 exP = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id")) -- needs let-polymorphism
