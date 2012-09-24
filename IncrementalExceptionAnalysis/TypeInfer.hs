@@ -91,7 +91,7 @@ type TyEnv = M.Map Ident Ty
 instance Substitute TyEnv where
     subst $@ env = M.map (subst $@) env
 
-infer :: TyEnv -> Expr -> State [Ident] (Ty, Subst)
+infer :: TyEnv -> Expr -> State ([Ident], InferenceTree Int) (Ty, Subst)
 infer env (Var x)
     | Just t <- M.lookup x env = return (t, idSubst)
     | otherwise                = error "variable not in scope"

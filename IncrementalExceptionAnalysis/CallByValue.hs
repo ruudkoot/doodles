@@ -170,7 +170,7 @@ unify' _ _
 
 -- | Inference
 
-infer :: TyEnv -> Expr -> State [Ident] (Ty, Eff, Subst, Constr)
+infer :: TyEnv -> Expr -> State ([Ident], InferenceTree Int) (Ty, Eff, Subst, Constr)
 infer env (Var x)
     | Just t <- M.lookup x env = do u <- fresh
                                     return (t, EffUnif u, idSubst, S.empty)
@@ -197,7 +197,7 @@ infer env (App e1 e2)
                                              , subst3 $@ (subst2 $@ eff1)
                                              , subst3 $@            eff2 ])
                   `S.union` (subst3 $@ subst2 $@ k1) `S.union` (subst3 $@ k2) )
-infer env (If e0 e1 e2)
+{- infer env (If e0 e1 e2)
     = do (t0, eff0, subst0, k0) <- infer env e0
          (t1, eff1, subst1, k1) <- infer (subst0 $@ env) e1
          (t2, eff2, subst2, k2) <- infer (subst1 $@ subst0 #@ env) e2
@@ -210,7 +210,7 @@ infer env (If e0 e1 e2)
                                             ,subst4 $@ subst3 $@ subst2 $@ eff1
                                             ,subst4 $@ subst3 $@ eff2])
                   `S.singleton` subst4 
-                  
+-}
 infer env (Let x e1 e2)
     = do (t1, eff1, subst1, k1) <- infer                           env   e1
          (t2, eff2, subst2, k2) <- infer (M.insert x t1 (subst1 $@ env)) e2

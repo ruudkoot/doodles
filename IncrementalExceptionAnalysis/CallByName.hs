@@ -38,10 +38,15 @@ instance LaTeX Ty where
     latex (TyVar a              ) = "\\widehat\\tau" ++ a
     latex (TyCon TyBool         ) = "\\mathbf{Bool}"
     latex (TyCon TyInt          ) = "\\mathbf{Int}"
-    latex (TyFun t1 eff1 t2 eff2) = "\\left(" ++ latex t1
-                                    ++ "@" ++ latex eff1
-                                    ++ "\\rightarrow" ++ latex t2
-                                    ++ "@" ++ latex eff2 ++ "\\right)"
+    latex (TyFun t1 eff1 t2 eff2) = "\\left("
+                                    ++ latex t1
+                                    ++ "@"
+                                    ++ latex eff1
+                                    ++ "\\rightarrow "
+                                    ++ latex t2
+                                    ++ "@"
+                                    ++ latex eff2
+                                    ++ "\\right)"
 
 -- | Environments
 
@@ -108,9 +113,18 @@ instance Substitute Ty where
         = TyFun (subst $@ t) (subst $@ eff) (subst $@ t') (subst $@ eff')
     _                $@ x
         = x
+        
+instance Substitute' Ty where
+    subst $*@ TyFun t eff t' eff'
+        = TyFun (subst $*@ t) (subst $*@ eff) (subst $*@ t') (subst $*@ eff')
+    _     $*@ x
+        = x
 
 instance Substitute TyEnv where
     subst $@ env = M.map (\(t, eff) -> (subst $@ t, subst $@ eff)) env
+
+instance Substitute' TyEnv where -- needed to reconstruct the derivation tree
+    subst $*@ env = M.map (\(t, eff) -> (subst $*@ t, subst $*@ eff)) env
 
 instance Substitute Eff' where
     SimpleSubst _ ev $@ (EffVar v) | Just u <- M.lookup v ev = EffVar u
@@ -173,39 +187,69 @@ unify' _ _
 
 -- | Inference
 
-infer :: TyEnv -> Expr -> State [Ident] (Ty, Eff, SimpleSubst, Constr)
-infer env (Var x)
-    | Just (t, eff) <- M.lookup x env = return (t, eff, idSimpleSubst, S.empty)
+data Rule = Rule TyEnv Expr Ty Eff deriving Show
+
+instance Substitute Rule where
+    subst $@ (Rule env e t eff) = Rule (subst $@ env) e (subst $@ t) (subst $@ eff)
+
+instance Substitute' Rule where
+    subst $*@ (Rule env e t eff) = Rule (subst $*@ env) e (subst $*@ t) (subst $*@ eff)
+
+instance LaTeX Rule where
+    latex (Rule env e t eff)  = latex env
+                                ++ " \\vdash "
+                                ++ latex e
+                                ++ " : "
+                                ++ latex t
+                                ++ "\\ \\&\\ "
+                                ++ latex eff
+
+infer :: TyEnv -> Expr -> State ([Ident], InferenceTree Rule) (Ty, Eff, SimpleSubst, Constr)
+infer env e@(Var x)
+    | Just (t, eff) <- M.lookup x env = do putRule (Rule env e t eff)
+                                           return (t, eff, idSimpleSubst, S.empty)
     | otherwise                       = error "variable not in scope"
-infer env (Con c)
+infer env e@(Con c)
     = do u <- fresh
          case c of
-            Bool _ -> return (TyCon TyBool, u, idSimpleSubst, S.empty)
-            Int  _ -> return (TyCon TyInt , u, idSimpleSubst, S.empty)
-infer env (Abs x e0)
+            Bool _ -> do putRule (Rule env e (TyCon TyBool) u)
+                         return (TyCon TyBool, u, idSimpleSubst, S.empty)
+            Int  _ -> do putRule (Rule env e (TyCon TyInt ) u)
+                         return (TyCon TyInt , u, idSimpleSubst, S.empty)
+infer env e@(Abs x e0)
     = do a <- fresh
          u <- fresh
+         down
          (t0, eff0, subst0, k0) <- infer (M.insert x (a, u) env) e0
+         up
          u' <- fresh
+         putRule (Rule env e (TyFun (subst0 $@ a) (subst0 $@ u) t0 eff0) u')
          return (TyFun (subst0 $@ a) (subst0 $@ u) t0 eff0, u', subst0, k0)
-infer env (App e1 e2)
-    = do (t1, eff1, subst1, k1) <- infer            env  e1
+infer env e@(App e1 e2)
+    = do down
+         (t1, eff1, subst1, k1) <- infer            env  e1
          (t2, eff2, subst2, k2) <- infer (subst1 $@ env) e2
+         up
          a <- fresh
          u <- fresh
          let subst3 = unify (subst2 $@ t1) (TyFun t2 eff2 a u)
          u' <- fresh
+         putRule (Rule env e (subst3 $@ a) (EffUnif u'))
          return ( subst3 $@ a, EffUnif u', subst3 $. subst2 $. subst1
                 , S.singleton (u' :>: effect [ subst3 $@ u
                                              , subst3 $@ subst2 $@ eff1 ])
                   `S.union` (subst3 $@ k2) `S.union` (subst3 $@ subst2 $@ k1))
-infer env (Let x e1 e2)
-    = do (t1, eff1, subst1, k1) <- infer                                   env   e1
+infer env e@(Let x e1 e2)
+    = do down
+         (t1, eff1, subst1, k1) <- infer                                   env   e1
          (t2, eff2, subst2, k2) <- infer (M.insert x (t1, eff1) (subst1 $@ env)) e2
+         up
+         putRule (Rule env e t2 eff2)
          return (t2, eff2, subst2 $. subst1, k2 `S.union` (subst2 $@ k1))
-infer env Crash
+infer env e@Crash
     = do a <- fresh
          u <- fresh
+         putRule (Rule env e a (EffUnif u))
          return (a, EffUnif u, idSimpleSubst, S.singleton (u :>: S.singleton EffCrash))
 
 -- | Constraint solver (Talpin and Jouvelot style)

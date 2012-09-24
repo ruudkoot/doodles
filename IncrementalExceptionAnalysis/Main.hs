@@ -3,8 +3,10 @@ module Main where
 import Control.Monad
 import Control.Monad.State
 
-import qualified Data.Map as M
-import qualified Data.Set as S
+import qualified Data.Map         as M
+import qualified Data.Set         as S
+import qualified Data.Tree        as T
+import qualified Data.Tree.Zipper as Z
 
 import Fresh
 import Parsing
@@ -38,10 +40,10 @@ example name ex
          -- Syntax tree
          putStrLn $ latex ex ++ newline
          -- Type inference
-         let ((t, subst), _) = runState (TI.infer M.empty ex) freshIdents
+         let ((t, subst), _) = runState (TI.infer M.empty ex) initialState
          putStrLn $ latex t ++ newline
          -- Call-by-value
-         let ((t, eff, subst, k), _) = runState (CBV.infer M.empty ex) freshIdents
+         let ((t, eff, subst, k), _) = runState (CBV.infer M.empty ex) initialState
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex eff ++ ", "
                               ++ latex subst ++ ", " ++ latex k
                               ++ "\\right)" ++ newline
@@ -54,7 +56,7 @@ example name ex
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline  
          putStrLn $ latex (cbv ex) ++ newline
          -- Call-by-name
-         let ((t, eff, subst, k), _) = runState (CBN.infer M.empty ex) freshIdents
+         let ((t, eff, subst, k), (_, tr)) = runState (CBN.infer M.empty ex) initialState
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex eff ++ ", "
                               ++ latex subst ++ ", " ++ latex k
                               ++ "\\right)" ++ newline
@@ -65,6 +67,7 @@ example name ex
                     where f EffCrash = True
                           f _        = False
          putStrLn $ "\\left(" ++ latex t ++ ", " ++ latex sol ++ "\\right)" ++ newline
+         putStrLn $ latex (kbar CBN.$*@ subst CBN.$@ Z.toTree tr) ++ newline
          putStrLn $ latex (cbn ex)
          putStrLn $ "\\end{gather}"
 
@@ -79,5 +82,13 @@ ex8 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Bo
 ex9 = Let "suspendedcrash" (Abs "x" Crash) (Var "suspendedcrash")
 ex10 = Let "suspendedcrash" (Abs "x" Crash) (App (Var "suspendedcrash") (Con (Bool True)))
 ex11 = If Crash (Con (Bool True)) (Con (Bool False))
-ex12 = If (Con (True)) (Con (Bool False)) Crash
+-- ex12 = If (Con (True)) (Con (Bool False)) Crash
 exP = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id")) -- needs let-polymorphism
+
+-- | More pretty-printing
+
+instance CBN.Substitute a => CBN.Substitute (T.Tree a) where
+    subst $@ (T.Node x cs) = T.Node (subst CBN.$@ x) (map (subst CBN.$@) cs)
+    
+instance CBN.Substitute' a => CBN.Substitute' (T.Tree a) where
+    subst $*@ (T.Node x cs) = T.Node (subst CBN.$*@ x) (map (subst CBN.$*@) cs)
