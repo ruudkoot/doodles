@@ -187,23 +187,6 @@ unify' _ _
 
 -- | Inference
 
-data Rule = Rule TyEnv Expr Ty Eff deriving Show
-
-instance Substitute Rule where
-    subst $@ (Rule env e t eff) = Rule (subst $@ env) e (subst $@ t) (subst $@ eff)
-
-instance Substitute' Rule where
-    subst $*@ (Rule env e t eff) = Rule (subst $*@ env) e (subst $*@ t) (subst $*@ eff)
-
-instance LaTeX Rule where
-    latex (Rule env e t eff)  = latex env
-                                ++ " \\vdash "
-                                ++ latex e
-                                ++ " : "
-                                ++ latex t
-                                ++ "\\ \\&\\ "
-                                ++ latex eff
-
 infer :: TyEnv -> Expr -> State ([Ident], InferenceTree Rule) (Ty, Eff, SimpleSubst, Constr)
 infer env e@(Var x)
     | Just (t, eff) <- M.lookup x env = do putRule (Rule env e t eff)
@@ -251,6 +234,25 @@ infer env e@Crash
          u <- fresh
          putRule (Rule env e a (EffUnif u))
          return (a, EffUnif u, idSimpleSubst, S.singleton (u :>: S.singleton EffCrash))
+
+-- | Typing rules
+
+data Rule = Rule TyEnv Expr Ty Eff deriving Show
+
+instance Substitute Rule where
+    subst $@ (Rule env e t eff) = Rule (subst $@ env) e (subst $@ t) (subst $@ eff)
+
+instance Substitute' Rule where
+    subst $*@ (Rule env e t eff) = Rule (subst $*@ env) e (subst $*@ t) (subst $*@ eff)
+
+instance LaTeX Rule where
+    latex (Rule env e t eff)  = latex env
+                                ++ " \\vdash "
+                                ++ latex e
+                                ++ " : "
+                                ++ latex t
+                                ++ "\\ \\&\\ "
+                                ++ latex eff
 
 -- | Constraint solver (Talpin and Jouvelot style)
 

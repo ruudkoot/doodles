@@ -29,7 +29,7 @@ instance LaTeX Expr where
     latex (Con (Bool True )) = "\\mathbf{True}"    
     latex (Con (Bool False)) = "\\mathbf{False}"
     latex (Con (Int n     )) = show n
-    latex (Abs x e         ) = "\\lambda " ++ x ++ ".\\ " ++ latex e
+    latex (Abs x e         ) = "\\left(\\lambda " ++ x ++ ".\\ " ++ latex e ++ "\\right)"
     latex (App e1 e2       ) = latex e1 ++ "\\ " ++ latex e2
     latex (If e0 e1 e2     ) = "\\mathbf{if}\\ " ++ latex e0
                                ++ "\\ \\mathbf{then}\\ " ++ latex e1

@@ -10,6 +10,9 @@ import qualified Data.Tree as T
 
 class LaTeX a where
     latex :: a -> String
+    
+instance LaTeX Bool where
+    latex b = "\\mathbf{" ++ show b ++ "}"
 
 instance LaTeX String where
     latex = id

@@ -12,14 +12,15 @@ import Fresh
 import Parsing
 import Printing
 
-import Syntax
-import Analysis
+import           Syntax
+import           Analysis
 import qualified TypeInfer   as TI
 import qualified CallByValue as CBV
 import qualified CallByName  as CBN
+import qualified Dataflow    as DF
 
--- | Examples
-
+-- | Examples: Exception analysis
+{-
 main
     = do putStrLn preamble
          example "Example 1"  ex1
@@ -84,6 +85,55 @@ ex10 = Let "suspendedcrash" (Abs "x" Crash) (App (Var "suspendedcrash") (Con (Bo
 ex11 = If Crash (Con (Bool True)) (Con (Bool False))
 -- ex12 = If (Con (True)) (Con (Bool False)) Crash
 exP = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Var "id")) -- needs let-polymorphism
+-}
+
+-- | Examples: Dataflow
+
+main
+    = do putStrLn preamble
+         example "Example 1"  ex1
+         example "Example 2"  ex2
+         example "Example 3"  ex3
+         example "Example 4"  ex4
+         example "Example 5"  ex5
+         example "Example 6"  ex6
+         example "Example 7"  ex7
+         example "Example 8"  ex8
+         example "Example 9"  ex9
+         example "Example 10" ex10
+         example "Example 11" ex11
+         example "Example 12" ex12
+         example "Example 13" ex13
+         putStrLn postamble
+         
+example name ex
+    = do putStrLn $ "\\paragraph{" ++ name ++ "}"
+         putStrLn $ "\\begin{gather}"
+         -- Syntax tree
+         putStrLn $ latex ex ++ newline
+         -- Type inference
+         let ((t, subst), _) = runState (TI.infer M.empty ex) initialState
+         putStrLn $ latex t ++ newline
+         -- Dataflow
+         let ((t, subst, k), _) = runState (DF.infer M.empty ex) initialState
+         putStrLn $ latex t     ++ newline
+         putStrLn $ latex subst ++ newline
+         putStrLn $ latex k
+         putStrLn $ "\\end{gather}"
+         
+ex1 = Con (Bool True)
+ex2 = Con (Int 42)
+ex3 = Let "x" (Con (Int 42)) (Var "x")
+ex4 = Abs "x" (Con (Int 42))
+ex5 = Abs "x" (Var "x")
+ex6 = App (Abs "x" (Con (Int 42))) (Con (Bool True))
+ex7 = App (Abs "x" (Var "x")) (Con (Bool True))
+ex8 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (Var "const")
+ex9 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (Var "const") (Con (Bool True)))
+ex10 = Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Con (Bool True))) (Con (Int 42)))
+ex11 = Let "id" (Abs "x" (Var "x")) (Var "id")
+ex12 = Let "id" (Abs "x" (Var "x")) (App (Var "id") (Con (Bool False)))
+ex13 = Abs "y" (Let "const" (Abs "k" (Abs "x" (Var "k"))) (App (App (Var "const") (Var "y")) (Con (Bool True))))
 
 -- | More pretty-printing
 
