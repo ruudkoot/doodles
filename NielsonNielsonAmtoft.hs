@@ -3,14 +3,19 @@
 
 module Main where
 
+-- PERFORMANCE: commutativity and associativity of S.union (bigset `S.union` smallset)
+
 import Control.Monad
 import Control.Monad.State
 
 import qualified Data.Graph as G
 import qualified Data.List  as L
 import qualified Data.Map   as M
+import           Data.Maybe
 import qualified Data.Set   as S
 import qualified Data.Tree  as T
+
+import qualified Data.UnionFind.IntMap as UF    -- union-find-0.2
 
 main = undefined
 
@@ -93,7 +98,7 @@ infer' env (Con c)
          t' <- mkSimple t
          return (s, t', b, c)
 infer' env (Var x)
-    | Just ts <- M.lookup x env = do inst ts
+    | Just ts <- M.lookup x env = inst ts
     | otherwise                 = error "variable not in scope"
 infer' env (Fn x e0)
     = do a <- fresh
@@ -119,7 +124,7 @@ infer' env (Rec f x e0)
         = do (a1, b, a2) <- fresh
              (s0, t0, b0, c0) <- infer (M.insert x (injTS a1)
                                             (M.insert f (injTS (TyFun a1 b a2)) env)) e0
-             return ( s0, s0 $@ (TyFun a1 b a2), Be S.empty
+             return ( s0, s0 $@ TyFun a1 b a2, Be S.empty
                     , c0 `S.union` S.fromList [b0 :<*: (s0 $@ b), t0 :<: (s0 $@ a2)] )
 infer' env (If e0 e1 e2)
     = do (s0, t0, b0, c0) <- infer env e0
@@ -129,6 +134,60 @@ infer' env (If e0 e1 e2)
          return ( s2 $. s1 $. s0, a, s2 $@ s1 $@ b0 `joinBe` (s2 $@ b1) `joinBe` b2
                 , s2 $@ s1 $@ c0 `S.union` (s2 $@ c1) `S.union` c2 `S.union`
                     S.fromList [s2 $@ s1 $@ t0 :<: TyBool, s2 $@ t1 :<: a, t2 :<: a] )
+
+-- * Forcing/matching
+
+force :: Constr -> (Subst, Constr)
+force c = let (s', c', equiv') = rewrite (idSubst, c, eqc)
+           in if atomic c' then (s', c') else error "forcing failed"
+
+rewrite = undefined
+eqc = undefined
+atomic = undefined
+
+
+mrml :: Constr' -> ???
+mrml (t :<: TyVar a) = Just ???
+mrml (TyVar a :<: t) = Just ???
+mrml _               = Nothing
+
+m :: Name -> Ty -> Equiv -> Maybe (Subst, Equiv)
+m a t equiv = 
+
+rewriteC c
+    = process rewriteC'
+
+
+process :: Ord a => (a -> Maybe (S.Set a)) -> S.Set a -> S.Set a
+process f = process' S.empty
+    where process' u w
+            = case S.minView w of
+                    Nothing       -> u
+                    Just (c', w') -> case f c' of
+                                        Nothing  -> process' (c' `S.insert` u) w'
+                                        Just w'' -> process' u (w' `S.union` w'')
+
+rewriteC' :: Constr' -> Maybe Constr
+rewriteC' (Be bs :<*: b)  -- \emptyset and \cup
+    = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
+rewriteC' (TyUnit :<: TyUnit)
+    = Just $ S.empty
+rewriteC' (TyBool :<: TyBool)
+    = Just $ S.empty
+rewriteC' (TyInt :<: TyInt)
+    = Just $ S.empty
+rewriteC' (TyPair t1 t2 :<: TyPair t3 t4)
+    = Just $ S.fromList [t1 :<: t3, t2 :<: t4]
+rewriteC' (TyList t1 :<: TyList t2)
+    = Just $ S.fromList [t1 :<: t2]
+rewriteC' (TyChan t1 :<: TyChan t2)
+    = Just $ S.fromList [t1 :<: t2, t2 :<: t1]
+rewriteC' (TyCom  t1 b1 :<: TyCom  t2 b2)
+    = Just $ S.fromList [t1 :<: t2, b1 :<*: b2]
+rewriteC' (TyFun t1 b1 t2 :<: TyFun t3 b2 t4)
+    = Just $ S.fromList [t3 :<: t1, b1 :<*: b2, t2 :<: t4]
+rewriteC' _
+    = Nothing
 
 -- * Primitive types
 
@@ -197,8 +256,7 @@ mkSimple   (TyCom t b)     = do b' <- mkSimple' b
                                 return (TyCom t' b')
 
 mkSimple' b@(BeUnif _)        = return b
-mkSimple' (Be bs) | S.null bs = do b' <- fresh
-                                   return b'
+mkSimple' (Be bs) | S.null bs = fresh
                   | otherwise = error "type not simplifiable"
 
 -- * Instantiation
@@ -213,20 +271,67 @@ inst (Forall as bs c t)
 -- * Generalization
          
 gen env b c t
-    = let as = (ftv t `biClose` c) `S.difference` ((ftv env `S.union` ftv b) `downClose` c)
-          bs = (fbv t `biClose` c) `S.difference` ((fbv env `S.union` fbv b) `downClose` c)
-          c0 = S.filter undefined c
+    = let abs = (fv t `biClose` c) `S.difference` ((fv env `S.union` fv b) `downClose` c)
+          as  = abs `S.intersection` (ftv t `S.union` ftv env `S.union` ftv b)
+          bs  = abs `S.intersection` (fbv t `S.union` fbv env `S.union` fbv b)
+          c0  = S.filter f c
+            where f (g1 :<: g2)  = not (S.null ((fv g1 `S.union` fv g2) `S.intersection` abs))
+                  f (g1 :<*: g2) = not (S.null ((fv g1 `S.union` fv g2) `S.intersection` abs))
        in Forall (S.toList as) (S.toList bs) c0 t
 
-biClose   = undefined
-downClose = undefined
+upClose, downClose, biClose :: S.Set Name -> Constr -> S.Set Name
 
 upClose x c
-    = let f0 = S.foldr (\(g1 :<: g2) r ->
-                            S.foldr (\x r' -> M.insert x (ftv g2 `S.union` fbv g2) r')
-                                    r (ftv g1 `S.union` fbv g1))
-                       M.empty c
-       in f0
+    = let f0 = S.foldr
+                (\(g1 :<: g2) r ->
+                    S.foldr (\x -> M.insertWith S.union x (fv g1)) r (fv g2))
+                M.empty c
+          fc = transitiveClosure (reflexiveClosure f0)
+       in S.filter (\k -> not (S.null (fromJust (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
+       
+downClose x c
+    = let f0 = S.foldr
+                (\(g1 :<: g2) r ->
+                    S.foldr (\x -> M.insertWith S.union x (fv g2)) r (fv g1))
+                M.empty c
+          fc = transitiveClosure (reflexiveClosure f0)
+       in S.filter (\k -> not (S.null (fromJust (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
+
+biClose x c
+    = let f0 = S.foldr
+                (\(g1 :<: g2) r ->
+                    S.foldr (\x -> M.insertWith S.union x (fv g2)) r (fv g1))
+                M.empty c
+          fc = transitiveClosure (symmetricClosure (reflexiveClosure f0))
+       in S.filter (\k -> not (S.null (fromJust (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
+
+-- * Reflexive transitive closure
+
+reflexiveClosure :: Ord a => M.Map a (S.Set a) -> M.Map a (S.Set a)
+reflexiveClosure m
+    = foldr (\k -> M.insertWith S.union k (S.singleton k)) m (M.keys m)
+    -- PERFORMANCE: Change S.union to S.insert/S.singleton depending on existence
+    
+symmetricClosure :: Ord a => M.Map a (S.Set a) -> M.Map a (S.Set a)
+symmetricClosure m
+    = M.foldrWithKey (\k v r -> S.foldr (\v' r' -> M.insertWith S.union v' (S.singleton k) r') r v) m m
+
+transitiveClosure :: Ord a => M.Map a (S.Set a) -> M.Map a (S.Set a)
+transitiveClosure m
+    = foldr reconstruct m . reverse . G.stronglyConnComp . toEdgeList $ m
+
+toEdgeList :: M.Map k (S.Set a) -> [((k, S.Set a), k, [a])]
+toEdgeList
+    = M.foldrWithKey (\k v -> (:) ((k, v), k, S.toList v)) []
+
+reconstruct :: Ord a => G.SCC (a, S.Set a) -> M.Map a (S.Set a) -> M.Map a (S.Set a)
+reconstruct (G.AcyclicSCC (k, v)) r
+    = let v' = S.foldr (\k r' -> fromJust (M.lookup k r) `S.union` r') v v
+       in M.insert k v' r
+reconstruct (G.CyclicSCC  kvs   ) r
+    = let v  = S.unions (map snd kvs)
+          v' = S.foldr (\k r' -> fromJust (M.lookup k r) `S.union` r') v v
+       in foldr (\(k, _) -> M.insert k v') r kvs
 
 -- | Fresh identifiers
 
@@ -234,7 +339,7 @@ class Fresh a where
     fresh :: State ([Name], s') a
     
 instance Fresh Name where
-    fresh = do ((x:xs), s') <- get
+    fresh = do (x:xs, s') <- get
                put (xs, s')
                return x
                
@@ -268,6 +373,8 @@ freshIdents = map (\n -> "_{" ++ show n ++ "}") [1..]
 class FV t where
     ftv :: t -> S.Set Ident
     fbv :: t -> S.Set Ident
+    fv :: t -> S.Set Ident
+    fv x = ftv x `S.union` fbv x
 
 instance FV Ty where
     ftv (TyVar a)       = S.singleton a
@@ -358,3 +465,8 @@ restrict = foldr M.delete
 
 unionMap :: (Ord a, Ord b) => (a -> S.Set b) -> S.Set a -> S.Set b
 unionMap f = S.unions . S.toList . S.map f
+
+-- | Testing
+
+transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
+transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
