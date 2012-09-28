@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances    #-}
+{-# LANGUAGE StandaloneDeriving   #-}
 
 module Main where
 
@@ -16,6 +17,8 @@ import qualified Data.Set   as S
 import qualified Data.Tree  as T
 
 import qualified Data.UnionFind.IntMap as UF    -- union-find-0.2
+
+-- deriving instance Ord a => Ord (UF.Point a)
 
 main = undefined
 
@@ -145,14 +148,75 @@ rewrite = undefined
 eqc = undefined
 atomic = undefined
 
-
+{-
 mrml :: Constr' -> ???
 mrml (t :<: TyVar a) = Just ???
 mrml (TyVar a :<: t) = Just ???
 mrml _               = Nothing
+-}
 
-m :: Name -> Ty -> Equiv -> Maybe (Subst, Equiv)
-m a t equiv = 
+type Equiv = (M.Map Name (UF.Point Name), UF.PointSupply Name)
+
+(??) :: Equiv -> Name -> UF.Point Name
+(pm, _) ?? n = fromJust (M.lookup n pm)
+
+m' :: Constr -> State ([Name], ()) ()
+m' c = do let univ     = fv c
+          let (pm, pa) = S.foldr (\a' (m, ps) -> let (ps', p) = UF.fresh ps a'
+                                                  in (M.insert a' p m, ps'))
+                                 (M.empty, UF.newPointSupply)
+                                 univ
+          return undefined
+          
+m :: Name -> Ty -> Equiv -> State ([Name], ()) (Maybe (Subst, Equiv))
+m a t equiv
+    = do let as         = filter (UF.equivalent (snd equiv) (equiv ?? a))
+                                 (map (equiv ??) (M.keys (fst equiv)))
+         let n          = length as
+         let (as0, bs0) = shGet t
+         let m          = length as0
+         ass            <- replicateM n (replicateM         m      fresh)
+         bss            <- replicateM n (replicateM (length (bs0)) fresh)
+         let r          = Subst (M.fromList (zipWith3 (\a as bs -> (UF.descriptor (snd equiv) a, shPut t (as, bs))) as ass bss)) M.empty
+         let equiv'     = undefined
+         return (Just (r, equiv'))
+          
+-- FIXME: i don't think the order matters, as long as we do it consistently
+shGet :: Ty -> ([Name], [Be])
+shGet (TyVar a)        = ([a], [])
+shGet TyUnit           = ([], [])
+shGet TyBool           = ([], [])
+shGet TyInt            = ([], [])
+shGet (TyPair t1   t2) = shGet t1 +++ shGet t2
+shGet (TyFun  t1 b t2) = shGet t1 +++ ([], [b]) +++ shGet t2
+shGet (TyList t      ) = shGet t
+shGet (TyChan t      ) = shGet t
+shGet (TyCom  t  b   ) = shGet t +++ ([], [b])
+
+shPut :: Ty -> ([Name], [Be]) -> Ty
+shPut t (as, bs) = let (t', [], []) = shPut' t (as, bs) in t'
+
+shPut' :: Ty -> ([Name], [Be]) -> (Ty, [Name], [Be])
+shPut' (TyVar _) (a:as, bs) = (TyVar a, as, bs)
+shPut' TyUnit    (  as, bs) = (TyUnit , as, bs)
+shPut' TyBool    (  as, bs) = (TyBool , as, bs)
+shPut' TyInt     (  as, bs) = (TyInt  , as, bs)
+shPut' (TyPair t1 t2) (as0, bs0) = let (t1', as1, bs1) = shPut' t1 (as0, bs0)
+                                       (t2', as2, bs2) = shPut' t2 (as1, bs1)
+                                    in (TyPair t1' t2', as2, bs2)
+shPut' (TyFun t1 b t2) (as0, bs0) = let (t1', as1, b':bs1) = shPut' t1 (as0, bs0)
+                                        (t2', as2,    bs2) = shPut' t2 (as1, bs2)
+                                     in (TyFun t1' b' t2', as2, bs2)
+shPut' (TyList t) (as, bs) = let (t', as', bs') = shPut' t (as, bs)
+                              in (TyList t', as', bs')
+shPut' (TyChan t) (as, bs) = let (t', as', bs') = shPut' t (as, bs)
+                              in (TyChan t', as', bs')
+shPut' (TyCom t b) (as, bs) = let (t', as', b':bs') = shPut' t (as, bs)
+                               in (TyCom t' b', as', bs')
+
+
+(+++) :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
+(xs1, ys1) +++ (xs2, ys2) = (xs1 ++ xs2, ys1 ++ ys2)
 
 rewriteC c
     = process rewriteC'
@@ -278,6 +342,8 @@ gen env b c t
             where f (g1 :<: g2)  = not (S.null ((fv g1 `S.union` fv g2) `S.intersection` abs))
                   f (g1 :<*: g2) = not (S.null ((fv g1 `S.union` fv g2) `S.intersection` abs))
        in Forall (S.toList as) (S.toList bs) c0 t
+
+-- * Closures
 
 upClose, downClose, biClose :: S.Set Name -> Constr -> S.Set Name
 
@@ -405,6 +471,8 @@ instance FV Be where
     ftv (Be bs)    = unionMap ftv bs
     
 instance FV TyEnv where
+
+instance FV Constr where
     
 -- | Substitutions
 
