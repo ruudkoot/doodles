@@ -5,6 +5,7 @@
 module Main where
 
 -- PERFORMANCE: commutativity and associativity of S.union (bigset `S.union` smallset)
+--              TyScheme, quantified variables as list or set?
 
 import Control.Monad
 import Control.Monad.State
@@ -140,34 +141,91 @@ infer' env (If e0 e1 e2)
 
 -- * Forcing/matching
 
-force :: Constr -> (Subst, Constr)
-force c = let (s', c', equiv') = rewrite (idSubst, c, eqc)
-           in if atomic c' then (s', c') else error "forcing failed"
+force :: Constr -> State ([Name], ()) (Subst, Constr)
+force c = do (s', c', equiv') <- rewrite (idSubst, c, eqc c)
+             if atomic c' then return (s', c') else error "forcing failed"
 
-rewrite = undefined
-eqc = undefined
-atomic = undefined
+eqc c   = let univ = ftv c
+              (pm, pa) = S.foldr (\a' (m, ps) -> let (ps', p) = UF.fresh ps a'
+                                                  in (M.insert a' p m, ps'))
+                                 (M.empty, UF.newPointSupply)
+                                 univ
+           in (pm, pa)
 
-{-
-mrml :: Constr' -> ???
-mrml (t :<: TyVar a) = Just ???
-mrml (TyVar a :<: t) = Just ???
-mrml _               = Nothing
--}
+atomic = and . map atomic' . S.toList
+    where atomic' (TyVar  _ :<:  TyVar  _) = True
+          atomic' (Be chan  :<*: BeUnif _) | [BeChan _] <- S.toList chan = True
+          atomic' (BeUnif _ :<*: BeUnif _) = True
+          atomic' _                        = False
+
+rewrite (s, c, e)
+    = do let dc = process decompose c
+         maybeMatch <- process2 (s, dc, e)
+         case maybeMatch of
+            Nothing            -> return (s, dc, e)
+            Just (s', dc', e') -> rewrite (s', dc', e')
+         
+
+process :: Ord a => (a -> Maybe (S.Set a)) -> S.Set a -> S.Set a
+process f = process' S.empty
+    where process' u w
+            = case S.minView w of
+                Nothing       -> u
+                Just (c', w') -> case f c' of
+                                    Nothing  -> process' (c' `S.insert` u) w'
+                                    Just w'' -> process' u (w' `S.union` w'')
+
+decompose :: Constr' -> Maybe Constr
+decompose (Be bs :<*: b)  -- \emptyset and \cup
+    = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
+decompose (TyUnit :<: TyUnit)
+    = Just $ S.empty
+decompose (TyBool :<: TyBool)
+    = Just $ S.empty
+decompose (TyInt :<: TyInt)
+    = Just $ S.empty
+decompose (TyPair t1 t2 :<: TyPair t3 t4)
+    = Just $ S.fromList [t1 :<: t3, t2 :<: t4]
+decompose (TyList t1 :<: TyList t2)
+    = Just $ S.fromList [t1 :<: t2]
+decompose (TyChan t1 :<: TyChan t2)
+    = Just $ S.fromList [t1 :<: t2, t2 :<: t1]
+decompose (TyCom  t1 b1 :<: TyCom  t2 b2)
+    = Just $ S.fromList [t1 :<: t2, b1 :<*: b2]
+decompose (TyFun t1 b1 t2 :<: TyFun t3 b2 t4)
+    = Just $ S.fromList [t3 :<: t1, b1 :<*: b2, t2 :<: t4]
+decompose _
+    = Nothing
+
+process2 :: (Subst, Constr, Equiv) -> State ([Name], ()) (Maybe (Subst, Constr, Equiv))
+process2 = process' S.empty
+    where process' u (s, w, e)
+            = case S.minView w of
+                Nothing       -> return Nothing
+                Just (c', w') -> do maybeSCE <- mrml (s, u `S.union` w', e) c'
+                                    case maybeSCE of 
+                                        Nothing -> process' (c' `S.insert` u) (s, w', e)
+                                        result  -> return result
+
+mrml :: (Subst, Constr, Equiv) -> Constr' -> State ([Name], ()) (Maybe (Subst, Constr, Equiv))
+mrml (s, c, equiv) (t :<: TyVar a)
+    = do maybeSE <- m a t equiv
+         case maybeSE of
+            Nothing          -> return $ Nothing
+            Just (r, equiv') -> return $ Just (r $@ s, S.insert ((r $@ t) :<: (r $@ (TyVar a))) (r $@ c), equiv')
+mrml (s, c, equiv) (TyVar a :<: t)
+    = do maybeSE <- m a t equiv
+         case maybeSE of
+            Nothing          -> return $ Nothing
+            Just (r, equiv') -> return $ Just (r $@ s, S.insert ((r $@ (TyVar a)) :<: (r $@ t)) (r $@ c), equiv')
+mrml _             _
+    = return Nothing
 
 type Equiv = (M.Map Name (UF.Point Name), UF.PointSupply Name)
 
 (??) :: Equiv -> Name -> UF.Point Name
 (pm, _) ?? n = fromJust (M.lookup n pm)
-
-m' :: Constr -> State ([Name], ()) ()
-m' c = do let univ     = fv c
-          let (pm, pa) = S.foldr (\a' (m, ps) -> let (ps', p) = UF.fresh ps a'
-                                                  in (M.insert a' p m, ps'))
-                                 (M.empty, UF.newPointSupply)
-                                 univ
-          return undefined
-          
+        
 m :: Name -> Ty -> Equiv -> State ([Name], ()) (Maybe (Subst, Equiv))
 m a t equiv
     = do let as         = filter (UF.equivalent (snd equiv) (equiv ?? a))
@@ -175,12 +233,19 @@ m a t equiv
          let n          = length as
          let (as0, bs0) = shGet t
          let m          = length as0
-         ass            <- replicateM n (replicateM         m      fresh)
+         ass            <- replicateM n (replicateM m              fresh)
          bss            <- replicateM n (replicateM (length (bs0)) fresh)
          let r          = Subst (M.fromList (zipWith3 (\a as bs -> (UF.descriptor (snd equiv) a, shPut t (as, bs))) as ass bss)) M.empty
-         let equiv'     = undefined
+         let equiv'     = let univ     = M.keys (fst equiv) ++ concat ass
+                              (pm, pa) = foldr (\a' (m, ps) -> let (ps', p) = UF.fresh ps a'
+                                                                in (M.insert a' p m, ps'))
+                                               (M.empty, UF.newPointSupply)
+                                               univ
+                           in let pa1 = foldr (\as par -> foldr (\(as0', as') par' -> UF.union par' (equiv ?? as0') (equiv ?? as')) par (zip as0 as)) pa ass
+                                  pa2 = foldr (\(a', a'') pa1r -> UF.union pa1r (equiv ?? a') (equiv ?? a'')) pa1 [(a', a'') | a' <- M.keys (fst equiv), a'' <- M.keys (fst equiv)]
+                               in (pm, pa2)
          return (Just (r, equiv'))
-          
+
 -- FIXME: i don't think the order matters, as long as we do it consistently
 shGet :: Ty -> ([Name], [Be])
 shGet (TyVar a)        = ([a], [])
@@ -197,61 +262,25 @@ shPut :: Ty -> ([Name], [Be]) -> Ty
 shPut t (as, bs) = let (t', [], []) = shPut' t (as, bs) in t'
 
 shPut' :: Ty -> ([Name], [Be]) -> (Ty, [Name], [Be])
-shPut' (TyVar _) (a:as, bs) = (TyVar a, as, bs)
-shPut' TyUnit    (  as, bs) = (TyUnit , as, bs)
-shPut' TyBool    (  as, bs) = (TyBool , as, bs)
-shPut' TyInt     (  as, bs) = (TyInt  , as, bs)
-shPut' (TyPair t1 t2) (as0, bs0) = let (t1', as1, bs1) = shPut' t1 (as0, bs0)
-                                       (t2', as2, bs2) = shPut' t2 (as1, bs1)
-                                    in (TyPair t1' t2', as2, bs2)
+shPut' (TyVar _)       (a:as, bs) = (TyVar a, as, bs)
+shPut' TyUnit          (  as, bs) = (TyUnit , as, bs)
+shPut' TyBool          (  as, bs) = (TyBool , as, bs)
+shPut' TyInt           (  as, bs) = (TyInt  , as, bs)
+shPut' (TyPair t1 t2)  (as0, bs0) = let (t1', as1, bs1) = shPut' t1 (as0, bs0)
+                                        (t2', as2, bs2) = shPut' t2 (as1, bs1)
+                                     in (TyPair t1' t2', as2, bs2)
 shPut' (TyFun t1 b t2) (as0, bs0) = let (t1', as1, b':bs1) = shPut' t1 (as0, bs0)
                                         (t2', as2,    bs2) = shPut' t2 (as1, bs2)
                                      in (TyFun t1' b' t2', as2, bs2)
-shPut' (TyList t) (as, bs) = let (t', as', bs') = shPut' t (as, bs)
-                              in (TyList t', as', bs')
-shPut' (TyChan t) (as, bs) = let (t', as', bs') = shPut' t (as, bs)
-                              in (TyChan t', as', bs')
-shPut' (TyCom t b) (as, bs) = let (t', as', b':bs') = shPut' t (as, bs)
-                               in (TyCom t' b', as', bs')
-
+shPut' (TyList t)      (as, bs)   = let (t', as', bs') = shPut' t (as, bs)
+                                     in (TyList t', as', bs')
+shPut' (TyChan t)      (as, bs)   = let (t', as', bs') = shPut' t (as, bs)
+                                     in (TyChan t', as', bs')
+shPut' (TyCom t b)     (as, bs)   = let (t', as', b':bs') = shPut' t (as, bs)
+                                     in (TyCom t' b', as', bs')
 
 (+++) :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
 (xs1, ys1) +++ (xs2, ys2) = (xs1 ++ xs2, ys1 ++ ys2)
-
-rewriteC c
-    = process rewriteC'
-
-
-process :: Ord a => (a -> Maybe (S.Set a)) -> S.Set a -> S.Set a
-process f = process' S.empty
-    where process' u w
-            = case S.minView w of
-                    Nothing       -> u
-                    Just (c', w') -> case f c' of
-                                        Nothing  -> process' (c' `S.insert` u) w'
-                                        Just w'' -> process' u (w' `S.union` w'')
-
-rewriteC' :: Constr' -> Maybe Constr
-rewriteC' (Be bs :<*: b)  -- \emptyset and \cup
-    = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
-rewriteC' (TyUnit :<: TyUnit)
-    = Just $ S.empty
-rewriteC' (TyBool :<: TyBool)
-    = Just $ S.empty
-rewriteC' (TyInt :<: TyInt)
-    = Just $ S.empty
-rewriteC' (TyPair t1 t2 :<: TyPair t3 t4)
-    = Just $ S.fromList [t1 :<: t3, t2 :<: t4]
-rewriteC' (TyList t1 :<: TyList t2)
-    = Just $ S.fromList [t1 :<: t2]
-rewriteC' (TyChan t1 :<: TyChan t2)
-    = Just $ S.fromList [t1 :<: t2, t2 :<: t1]
-rewriteC' (TyCom  t1 b1 :<: TyCom  t2 b2)
-    = Just $ S.fromList [t1 :<: t2, b1 :<*: b2]
-rewriteC' (TyFun t1 b1 t2 :<: TyFun t3 b2 t4)
-    = Just $ S.fromList [t3 :<: t1, b1 :<*: b2, t2 :<: t4]
-rewriteC' _
-    = Nothing
 
 -- * Primitive types
 
@@ -465,14 +494,32 @@ instance FV Ty where
 
 instance FV Be' where
     ftv (BeVar _) = S.empty
+    fbv (BeVar b) = S.singleton b
 
 instance FV Be where
-    ftv (BeUnif u) = S.empty
-    ftv (Be bs)    = unionMap ftv bs
-    
+    ftv (BeUnif u ) = S.empty
+    ftv (Be     bs) = unionMap ftv bs
+
+    fbv (BeUnif u ) = S.singleton u
+    fbv (Be     bs) = unionMap fbv bs
+
+instance FV TyScheme where
+    ftv (Forall as bs cs t) = (ftv cs `S.union` ftv t) `S.difference` (S.fromList as)
+    fbv (Forall as bs cs t) = (fbv cs `S.union` fbv t) `S.difference` (S.fromList bs)
+
 instance FV TyEnv where
+    ftv = S.unions . M.elems . M.map ftv
+    fbv = S.unions . M.elems . M.map fbv
+
+instance FV Constr' where
+    ftv (t1 :<:  t2) = ftv t1 `S.union` ftv t2
+    ftv (b1 :<*: b2) = ftv b1 `S.union` ftv b2
+    fbv (t1 :<:  t2) = fbv t1 `S.union` fbv t2
+    fbv (b1 :<*: b2) = fbv b1 `S.union` fbv b2
 
 instance FV Constr where
+    ftv = unionMap ftv
+    fbv = unionMap fbv
     
 -- | Substitutions
 
@@ -515,8 +562,11 @@ instance Substitute Be where
     subst $@ (BeUnif u) = BeUnif (subst $@ u)
     
 instance Substitute Constr' where
+    subst $@ (t1 :<:  t2) = (subst $@ t1) :<:  (subst $@ t2)
+    subst $@ (b1 :<*: b2) = (subst $@ b1) :<*: (subst $@ b2)
 
 instance Substitute Constr where
+    subst $@ cs = S.map (subst $@) cs
     
 instance Substitute TyScheme where
     Subst tv bv $@ (Forall as bs c t)
