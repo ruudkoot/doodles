@@ -1,42 +1,61 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances    #-}
-{-# LANGUAGE StandaloneDeriving   #-}
 
 module Main (main) where
 
 -- PERFORMANCE: commutativity and associativity of S.union (bigset `S.union` smallset)
 --              TyScheme, quantified variables as list or set?
 
+import qualified Debug.Trace         as D
+
 import           Control.Monad
 import           Control.Monad.State
 
-import qualified Data.Graph as G
-import qualified Data.List  as L
-import qualified Data.Map   as M
+import qualified Data.Graph          as G
+import qualified Data.List           as L
+import qualified Data.Map            as M
 import           Data.Maybe
-import qualified Data.Set   as S
-import qualified Data.Tree  as T
+import qualified Data.Set            as S
+import qualified Data.Tree           as T
+import qualified Data.Tree.Zipper    as Z
 
-import qualified Equiv      as E
+import qualified Equiv               as E
 
--- deriving instance Ord a => Ord (UF.Point a)
+type MyMonad r = State ([Name], InferenceTree String, [String]) r
 
-main = do let expr = exB
-          let ((s, t, b, c), (_, msgs))
-               = runState (infer M.empty expr) (freshIdents, [])
-          putStrLn $ show msgs
+main = do let expr = exH
+          let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
+          let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
+          putStrLn $ "Messages    : " ++ show msgs
           putStrLn $ "Type        : " ++ show t
           putStrLn $ "Behaviour   : " ++ show b
           putStrLn $ "Constraints : " ++ show c
           putStrLn $ "Substitution: " ++ show s
           
 exA = Let "id" (Fn "x" (Var "x")) (Var "id")
-exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id")
+exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Con (Bool True))
+exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id")
+exD = Con (Bool True)
+exE = Con (Int 42)
+exF = Fn "x" (Con (Bool True))
+exG = Fn "x" (Var "x")
+exH = Fn "x" (Var "x") `App` (Con (Bool True))
           
-ex230 = Fn "f" (Let "id" (Fn "y" ((If (Con (Bool True)) (Var "f") (Fn "x" (Con Sync `App` Con Send `App` (Con Pair `App` (Con Channel) `App` (Var "y")) `_seq` (Var "x")))) `_seq` (Var "y"))) (Var "id" `App` Var "id"))
+ex230 = Fn "f" (Let "id" (Fn "y" (
+                           (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" (Con Sync `App` (Con Send `App`
+                                            _pair (Con Channel `App` Con Unit)
+                                                  (Var "y"))) `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y"))
+                    (Var "id" `App` Var "id"))
 
 _seq :: Expr -> Expr -> Expr
 _seq e1 e2 = Con Snd `App` (Con Pair `App` e1 `App` e2)
+
+_pair :: Expr -> Expr -> Expr
+_pair e1 e2 = Con Pair `App` e1 `App` e2
 
 -- | Syntax
 
@@ -105,14 +124,14 @@ type TyEnv = M.Map Ident TyScheme
 
 -- * Inference
 
+infer :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
 infer env e
     = do (s1, t1, b1, c1) <- infer' env e
          (s2, c2) <- force c1
-         -- (s2, c2) <- return (s1, c1)
          (c3, t3, b3) <- return (c2, t1, b1) -- reduce
          return (s2 $. s1, t3, b3, c3)
 
-infer' :: TyEnv -> Expr -> State ([Name], [String]) (Subst, Ty, Be, Constr)
+infer' :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
 infer' env (Con c)
     = do (s, t, b, c) <- inst (typeOf c)
          t' <- mkSimple t
@@ -157,10 +176,12 @@ infer' env (If e0 e1 e2)
 
 -- * Forcing/matching
 
-force :: Constr -> State ([Name], [String]) (Subst, Constr)
+force :: Constr -> MyMonad (Subst, Constr)
 force c = do message "-----------------"
              (s', c', equiv') <- rewrite (idSubst, c, eqc c)
-             if atomic c' then return (s', c') else error "forcing failed"
+             if atomic c'
+                then return (s', c')
+                else error $ "forcing failed: " ++ show c'
 
 atomic :: Constr -> Bool
 atomic = and . map atomic' . S.toList
@@ -169,7 +190,7 @@ atomic = and . map atomic' . S.toList
           atomic' (BeUnif _ :<*: BeUnif _) = True
           atomic' _                        = False
 
-rewrite :: (Subst, Constr, E.Equiv Name) -> State ([Name], [String]) (Subst, Constr, E.Equiv Name)
+rewrite :: (Subst, Constr, E.Equiv Name) -> MyMonad (Subst, Constr, E.Equiv Name)
 rewrite (s, c, e)
     = do dc <- process decompose c
          maybeMatch <- process2 (s, dc, e)
@@ -179,7 +200,7 @@ rewrite (s, c, e)
             Just (s', dc', e') -> rewrite (s', dc', e')
          
 
-process :: (Ord a, Show a) => (a -> Maybe (S.Set a)) -> S.Set a -> State ([Name], [String]) (S.Set a)
+process :: (Ord a, Show a) => (a -> Maybe (S.Set a)) -> S.Set a -> MyMonad (S.Set a)
 process f x = process' S.empty x
     where process' u w
             = do message "P>>"
@@ -212,7 +233,7 @@ decompose _
     = Nothing
 
 process2 :: (Subst, Constr, E.Equiv Name) ->
-                State ([Name], [String]) (Maybe (Subst, Constr, E.Equiv Name))
+                MyMonad (Maybe (Subst, Constr, E.Equiv Name))
 process2 = process' S.empty
     where process' u (s, w, e)
             = case S.minView w of
@@ -224,7 +245,7 @@ process2 = process' S.empty
                             result  -> return result
 
 mrml :: (Subst, Constr, E.Equiv Name) -> Constr' ->
-            State ([Name], [String]) (Maybe (Subst, Constr, E.Equiv Name))
+            MyMonad (Maybe (Subst, Constr, E.Equiv Name))
 mrml (s, c, equiv) (t :<: TyVar a)
     = do maybeSE <- m a t equiv
          case maybeSE of
@@ -250,7 +271,7 @@ eqc :: Constr -> E.Equiv Name
 eqc = S.foldr E.insert E.empty . ftv
 
 m :: Name -> Ty -> E.Equiv Name ->
-        State ([Name], [String]) (Maybe (Subst, E.Equiv Name))
+        MyMonad (Maybe (Subst, E.Equiv Name))
 m a t equiv
     = do let as     = E.equivalenceClass equiv a
          let n      = S.size as
@@ -310,6 +331,7 @@ shPut' (TyCom t b)     (as, bs)   = let (t', as', b':bs') = shPut' t (as, bs)
 
 -- * Primitive types
 
+typeOf :: Con -> TyScheme
 typeOf Unit
     = injTS $ TyUnit
 typeOf (Bool _)
@@ -355,6 +377,7 @@ typeOf Fork
     = Forall ["a"] ["b"] S.empty
         (TyFun (TyFun TyUnit (BeUnif "b") (TyVar "a")) (Be S.empty) TyUnit)
 
+mkSimple :: Ty -> MyMonad Ty
 mkSimple t@(TyVar _)       = return t
 mkSimple t@TyUnit          = return t
 mkSimple t@TyInt           = return t
@@ -374,12 +397,14 @@ mkSimple   (TyCom t b)     = do b' <- mkSimple' b
                                 t' <- mkSimple t
                                 return (TyCom t' b')
 
+mkSimple' :: Be -> MyMonad Be
 mkSimple' b@(BeUnif _)        = return b
 mkSimple' (Be bs) | S.null bs = fresh
                   | otherwise = error "type not simplifiable"
 
 -- * Instantiation
 
+inst :: TyScheme -> MyMonad (Subst, Ty, Be, Constr)
 inst (Forall as bs c t)
     = do as' <- replicateM (length as) fresh
          bs' <- replicateM (length bs) fresh
@@ -450,15 +475,31 @@ reconstruct (G.CyclicSCC  kvs   ) r
 
 -- | Logging
 
-message :: String -> State (s, [String]) ()
-message m = do (s, ms) <- get
-               put (s, m:ms)
+message :: String -> MyMonad ()
+message m = do (s, s', ms) <- get
+               put (s, s', m:ms)
                return ()
+               
+-- | Inference tree (typing derivation)
+
+type InferenceTree r = Z.TreePos Z.Full r
+             
+down, up :: MyMonad ()
+down = modifySnd (Z.insert emptyInferenceTree . Z.children)
+up   = modifySnd (fromJust . Z.parent)
+
+putRule :: String -> MyMonad ()
+putRule = modifySnd . Z.setLabel
+
+modifySnd :: (String -> String) -> MyMonad ()
+modifySnd f = modify (\(a, b, c) -> (a, b, f c))
+
+emptyInferenceTree = T.Node (error "derivation not specified") []
 
 -- | Fresh identifiers
 
 class Fresh a where 
-    fresh :: State ([Name], s') a
+    fresh :: MyMonad a
     
 instance Fresh Name where
     fresh = do (x:xs, s') <- get
