@@ -1,5 +1,6 @@
 module Equiv
-    (Equiv(), empty, insert, union, equivalent, equivalenceClass, representatives)
+    ( Equiv(), empty, elems, insert, insert2, union, equivalent
+    , equivalenceClass, representatives                         )
 where
 
 import qualified Data.List             as L
@@ -16,6 +17,11 @@ data Equiv a = Equiv { m :: M.Map a (UF.Point a), ps :: UF.PointSupply a }
 -- * The empty equivalence relation
 empty :: Equiv a
 empty = Equiv { m = M.empty, ps = UF.newPointSupply }
+
+-- * The elements of the relation
+elems :: Ord a => Equiv a -> [(a,a)]
+elems e@Equiv { m = m, ps = ps }
+    = [(a,b) | a <- M.keys m, b <- equivalenceClass' e a ]
 
 -- * Insert new element into equivalence relation; must be fresh (verified)
 insert :: Ord a => a -> Equiv a -> Equiv a
@@ -50,6 +56,10 @@ equivalent Equiv { m = m, ps = ps } x y
 equivalenceClass :: Ord a => Equiv a -> a -> S.Set a
 equivalenceClass Equiv { m = m, ps = ps } x
     = S.fromList [ y | y <- M.keys m, UF.equivalent ps (m ?? x) (m ?? y) ]
+    
+equivalenceClass' :: Ord a => Equiv a -> a -> [a]
+equivalenceClass' Equiv { m = m, ps = ps } x
+    = [ y | y <- M.keys m, UF.equivalent ps (m ?? x) (m ?? y) ]
     
 -- * Enumerate all representatives of the equivalence classes in the relation
 representatives :: Ord a => Equiv a -> S.Set a

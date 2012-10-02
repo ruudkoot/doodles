@@ -211,34 +211,46 @@ decompose (TyFun t1 b1 t2 :<: TyFun t3 b2 t4)
 decompose _
     = Nothing
 
-process2 :: (Subst, Constr, E.Equiv Name) -> State ([Name], [String]) (Maybe (Subst, Constr, E.Equiv Name))
+process2 :: (Subst, Constr, E.Equiv Name) ->
+                State ([Name], [String]) (Maybe (Subst, Constr, E.Equiv Name))
 process2 = process' S.empty
     where process' u (s, w, e)
             = case S.minView w of
                 Nothing       -> return Nothing
-                Just (c', w') -> do maybeSCE <- mrml (s, u `S.union` w', e) c'
-                                    case maybeSCE of 
-                                        Nothing -> process' (c' `S.insert` u) (s, w', e)
-                                        result  -> return result
+                Just (c', w') ->
+                    do maybeSCE <- mrml (s, u `S.union` w', e) c'
+                       case maybeSCE of 
+                            Nothing -> process' (c' `S.insert` u) (s, w', e)
+                            result  -> return result
 
-mrml :: (Subst, Constr, E.Equiv Name) -> Constr' -> State ([Name], [String]) (Maybe (Subst, Constr, E.Equiv Name))
+mrml :: (Subst, Constr, E.Equiv Name) -> Constr' ->
+            State ([Name], [String]) (Maybe (Subst, Constr, E.Equiv Name))
 mrml (s, c, equiv) (t :<: TyVar a)
     = do maybeSE <- m a t equiv
          case maybeSE of
-            Nothing          -> return $ Nothing
-            Just (r, equiv') -> return $ Just (r $@ s, S.insert ((r $@ t) :<: (r $@ (TyVar a))) (r $@ c), equiv')
+            Nothing          -> 
+                return $ Nothing
+            Just (r, equiv') ->
+                return $ Just ( r $@ s
+                              , S.insert ((r $@ t) :<: (r $@ (TyVar a))) (r $@ c)
+                              , equiv' )
 mrml (s, c, equiv) (TyVar a :<: t)
     = do maybeSE <- m a t equiv
          case maybeSE of
-            Nothing          -> return $ Nothing
-            Just (r, equiv') -> return $ Just (r $@ s, S.insert ((r $@ (TyVar a)) :<: (r $@ t)) (r $@ c), equiv')
+            Nothing          ->
+                return $ Nothing
+            Just (r, equiv') ->
+                return $ Just ( r $@ s
+                              , S.insert ((r $@ (TyVar a)) :<: (r $@ t)) (r $@ c)
+                              , equiv' )
 mrml _             _
     = return Nothing
 
 eqc :: Constr -> E.Equiv Name
 eqc = S.foldr E.insert E.empty . ftv
 
-m :: Name -> Ty -> E.Equiv Name -> State ([Name], [String]) (Maybe (Subst, E.Equiv Name))
+m :: Name -> Ty -> E.Equiv Name ->
+        State ([Name], [String]) (Maybe (Subst, E.Equiv Name))
 m a t equiv
     = do let as     = E.equivalenceClass equiv a
          let n      = S.size as
@@ -251,7 +263,11 @@ m a t equiv
                                 (zipWith3 (\a as bs -> (a, shPut t (as, bs)))
                                           (S.toList as) ass bss))
                             M.empty
-         let equiv' = undefined
+         let equiv' = foldr (uncurry E.insert2) E.empty $
+                        [(a', a'') | (a',a'') <- E.elems equiv
+                                   , a' `S.notMember` as && a'' `S.notMember` as]
+                            ++
+                        concatMap (uncurry zip) [(as0,as') | as' <- ass]
          if S.null (as `S.intersection` fv t)
             then return (Just (r, equiv'))
             else return Nothing
