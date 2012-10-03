@@ -6,8 +6,6 @@ module Main (main) where
 -- PERFORMANCE: commutativity and associativity of S.union (bigset `S.union` smallset)
 --              TyScheme, quantified variables as list or set?
 
-import qualified Debug.Trace         as D
-
 import           Control.Monad
 import           Control.Monad.State
 
@@ -21,16 +19,22 @@ import qualified Data.Tree.Zipper    as Z
 
 import qualified Equiv               as E
 
-type MyMonad r = State ([Name], InferenceTree String, [String]) r
+import qualified Debug.Trace         as D
 
-main = do let expr = exH
+trace = (\a b -> b)
+-- trace = D.trace
+
+type MyMonad r = State ([Name], InferenceTree Rule, [String]) r
+
+main = do let expr = exI
           let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
           let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
-          putStrLn $ "Messages    : " ++ show msgs
+          putStrLn $ "Messages    : \n" ++ unlines msgs
           putStrLn $ "Type        : " ++ show t
           putStrLn $ "Behaviour   : " ++ show b
           putStrLn $ "Constraints : " ++ show c
           putStrLn $ "Substitution: " ++ show s
+          putStrLn $ T.drawTree (fmap show (Z.toTree tree))
           
 exA = Let "id" (Fn "x" (Var "x")) (Var "id")
 exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Con (Bool True))
@@ -40,6 +44,8 @@ exE = Con (Int 42)
 exF = Fn "x" (Con (Bool True))
 exG = Fn "x" (Var "x")
 exH = Fn "x" (Var "x") `App` (Con (Bool True))
+exI = (Fn "x" (Var "x")) `App` (Fn "y" (Var "y"))
+
           
 ex230 = Fn "f" (Let "id" (Fn "y" (
                            (If (Con (Bool True))
@@ -126,50 +132,72 @@ type TyEnv = M.Map Ident TyScheme
 
 infer :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
 infer env e
-    = do (s1, t1, b1, c1) <- infer' env e
-         (s2, c2) <- force c1
-         (c3, t3, b3) <- return (c2, t1, b1) -- reduce
+    = trace "infer" $
+      do down
+         (s1, t1, b1, c1) <- infer' env e
+         (s2,         c2) <- force c1
+         (c3, t3, b3    ) <- reduce c2 (s2 $@ t1) (s2 $@ b1) (s2 $@ s1 $@ env)
+         up
+         putRule (W c1 c2 s2)
          return (s2 $. s1, t3, b3, c3)
 
 infer' :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
-infer' env (Con c)
+infer' env e@(Con c)
     = do (s, t, b, c) <- inst (typeOf c)
          t' <- mkSimple t
+         putRule (W' env e t' b c s)
          return (s, t', b, c)
-infer' env (Var x)
-    | Just ts <- M.lookup x env = inst ts
+infer' env e@(Var x)
+    | Just ts <- M.lookup x env = do (s, t, b, c) <- inst ts
+                                     putRule (W' env e t b c s)
+                                     return (s, t, b, c)
     | otherwise                 = error "variable not in scope"
-infer' env (Fn x e0)
-    = do a <- fresh
+infer' env e@(Fn x e0)
+    = do down
+         a <- fresh
          (s0, t0, b0, c0) <- infer (M.insert x (injTS a) env) e0
          b <- fresh
+         up
+         putRule (W' env e (TyFun (s0 $@ a) b t0) (Be S.empty) (c0 `S.union` S.fromList [b0 :<*: b]) s0)
          return ( s0, TyFun (s0 $@ a) b t0, Be S.empty
                 , c0 `S.union` S.fromList [b0 :<*: b] )
-infer' env (App e1 e2)
-    = do (s1, t1, b1, c1) <- infer env e1
+infer' env e@(App e1 e2)
+    = do down
+         (s1, t1, b1, c1) <- infer env e1
          (s2, t2, b2, c2) <- infer (s1 $@ env) e2
          (a, b) <- fresh
+         up
+         putRule (W' env e a (s2 $@ b1) (s2 $@ c1 `S.union` c2 `S.union` S.fromList [s2 $@ t1 :<: TyFun t2 b a]) (s2 $. s1))
          return ( s2 $. s1, a, s2 $@ b1 `joinBe` b2 `joinBe` injBe b
                 , s2 $@ c1 `S.union` c2
                            `S.union` S.fromList [s2 $@ t1 :<: TyFun t2 b a] )
-infer' env (Let x e1 e2)
-    = do (s1, t1, b1, c1) <- infer env e1
+infer' env e@(Let x e1 e2)
+    = do down
+         (s1, t1, b1, c1) <- infer env e1
          let ts1 = gen (s1 $@ env) b1 c1 t1
          (s2, t2, b2, c2) <- infer (M.insert x ts1 (s1 $@ env)) e2
+         up
+         putRule (W' env e t2 (s2 $@ b1) (s2 $@ c2 `S.union` c1) (s2 $. s1))
          return ( s2 $. s1, t2, s2 $@ b1 `joinBe` b2, s2 $@ c2 `S.union` c1 )
-infer' env (Rec f x e0)
+infer' env e@(Rec f x e0)
     | f == x = error "binders not distinct"
     | otherwise
-        = do (a1, b, a2) <- fresh
+        = do down
+             (a1, b, a2) <- fresh
              (s0, t0, b0, c0) <- infer (M.insert x (injTS a1)
                                             (M.insert f (injTS (TyFun a1 b a2)) env)) e0
+             up
+             putRule (W' env e (s0 $@ TyFun a1 b a2) (Be S.empty) (c0 `S.union` S.fromList [b0 :<*: (s0 $@ b), t0 :<: (s0 $@ a2)]) s0)
              return ( s0, s0 $@ TyFun a1 b a2, Be S.empty
                     , c0 `S.union` S.fromList [b0 :<*: (s0 $@ b), t0 :<: (s0 $@ a2)] )
-infer' env (If e0 e1 e2)
-    = do (s0, t0, b0, c0) <- infer env e0
+infer' env e@(If e0 e1 e2)
+    = do down
+         (s0, t0, b0, c0) <- infer env e0
          (s1, t1, b1, c1) <- infer (s0 $@ env) e1
          (s2, t2, b2, c2) <- infer (s1 $@ s0 $@ env) e2
          a <- fresh
+         up
+         putRule (W' env e a (s2 $@ s1 $@ b0 `joinBe` (s2 $@ b1) `joinBe` b2) (s2 $@ s1 $@ c0 `S.union` (s2 $@ c1) `S.union` c2 `S.union` S.fromList [s2 $@ s1 $@ t0 :<: TyBool, s2 $@ t1 :<: a, t2 :<: a]) (s2 $. s1 $. s0))
          return ( s2 $. s1 $. s0, a, s2 $@ s1 $@ b0 `joinBe` (s2 $@ b1) `joinBe` b2
                 , s2 $@ s1 $@ c0 `S.union` (s2 $@ c1) `S.union` c2 `S.union`
                     S.fromList [s2 $@ s1 $@ t0 :<: TyBool, s2 $@ t1 :<: a, t2 :<: a] )
@@ -177,13 +205,17 @@ infer' env (If e0 e1 e2)
 -- * Forcing/matching
 
 force :: Constr -> MyMonad (Subst, Constr)
-force c = do message "-----------------"
-             (s', c', equiv') <- rewrite (idSubst, c, eqc c)
+force c = trace "force" $
+          do message "|Forcing|"
+             (s', c', _) <- rewrite (idSubst, c, eqc c)
              if atomic c'
                 then return (s', c')
                 else error $ "forcing failed: " ++ show c'
+                
+eqc :: Constr -> E.Equiv Name
+eqc = S.foldr E.insert E.empty . ftv
 
-atomic :: Constr -> Bool
+atomic :: Constr -> Bool -- FIXME: is this strict/lenient enough?
 atomic = and . map atomic' . S.toList
     where atomic' (TyVar  _ :<:  TyVar  _) = True
           atomic' (Be chan  :<*: BeUnif _) | [BeChan _] <- S.toList chan = True
@@ -191,20 +223,29 @@ atomic = and . map atomic' . S.toList
           atomic' _                        = False
 
 rewrite :: (Subst, Constr, E.Equiv Name) -> MyMonad (Subst, Constr, E.Equiv Name)
-rewrite (s, c, e)
-    = do dc <- process decompose c
-         maybeMatch <- process2 (s, dc, e)
-         message "R>>"
+rewrite (s, c, eq)
+    = trace "rewrite" $
+      do dc <- process decompose c
+         when (c /= dc) $
+            do message $ "Decompose: " ++ show c
+               message $ "        ~> " ++ show dc
+         message $ "Match    : " ++ show dc
+         message $ "           w/ " ++ show s
+         message $ "         & w/ " ++ show eq
+         maybeMatch <- process2 (s, dc, eq)
          case maybeMatch of
-            Nothing            -> return (s, dc, e)
-            Just (s', dc', e') -> rewrite (s', dc', e')
+            Nothing             -> return (s, dc, eq)
+            Just (s', dc', eq') -> do message $ "        ~> " ++ show dc'
+                                      message $ "           w/ " ++ show s'
+                                      message $ "         & w/ " ++ show eq'
+                                      rewrite (s', dc', eq')
          
 
 process :: (Ord a, Show a) => (a -> Maybe (S.Set a)) -> S.Set a -> MyMonad (S.Set a)
 process f x = process' S.empty x
     where process' u w
-            = do message "P>>"
-                 case S.minView w of
+            = trace ("process (" ++ show w ++ ")") $
+              do case S.minView w of
                    Nothing       -> return u
                    Just (c', w') -> case f c' of
                                        Nothing  -> process' (c' `S.insert` u) w'
@@ -212,7 +253,7 @@ process f x = process' S.empty x
 
 decompose :: Constr' -> Maybe Constr
 decompose (Be bs :<*: b)  -- \emptyset and \cup
-    = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
+    | S.size bs /= 1 = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
 decompose (TyUnit :<: TyUnit)
     = Just $ S.empty
 decompose (TyBool :<: TyBool)
@@ -235,45 +276,47 @@ decompose _
 process2 :: (Subst, Constr, E.Equiv Name) ->
                 MyMonad (Maybe (Subst, Constr, E.Equiv Name))
 process2 = process' S.empty
-    where process' u (s, w, e)
-            = case S.minView w of
-                Nothing       -> return Nothing
-                Just (c', w') ->
-                    do maybeSCE <- mrml (s, u `S.union` w', e) c'
-                       case maybeSCE of 
-                            Nothing -> process' (c' `S.insert` u) (s, w', e)
-                            result  -> return result
+    where process' u (s, w, eq)
+            = trace "process2" $
+              do case S.minView w of
+                   Nothing       -> trace "1" $ return Nothing
+                   Just (c', w') ->
+                        trace "2" $ 
+                        do maybeSCE <- mrml (s, u `S.union` w', eq) c'
+                           case maybeSCE of 
+                                Nothing -> trace "3" $ process' (c' `S.insert` u) (s, w', eq)
+                                result  -> trace "4" $ return result
 
 mrml :: (Subst, Constr, E.Equiv Name) -> Constr' ->
             MyMonad (Maybe (Subst, Constr, E.Equiv Name))
 mrml (s, c, equiv) (t :<: TyVar a)
-    = do maybeSE <- m a t equiv
-         case maybeSE of
+    = trace "mrml (t :<: a)" $
+      do maybeSE <- m a t equiv
+         case trace "mrmlTA" $ maybeSE of
             Nothing          -> 
                 return $ Nothing
             Just (r, equiv') ->
-                return $ Just ( r $@ s
+                return $ Just ( r $. s
                               , S.insert ((r $@ t) :<: (r $@ (TyVar a))) (r $@ c)
                               , equiv' )
 mrml (s, c, equiv) (TyVar a :<: t)
-    = do maybeSE <- m a t equiv
-         case maybeSE of
+    = trace "mrml (t :<: a)" $
+      do maybeSE <- m a t equiv
+         case trace "mrmlAT" $ maybeSE of
             Nothing          ->
                 return $ Nothing
             Just (r, equiv') ->
-                return $ Just ( r $@ s
+                return $ Just ( r $. s
                               , S.insert ((r $@ (TyVar a)) :<: (r $@ t)) (r $@ c)
                               , equiv' )
 mrml _             _
     = return Nothing
 
-eqc :: Constr -> E.Equiv Name
-eqc = S.foldr E.insert E.empty . ftv
-
 m :: Name -> Ty -> E.Equiv Name ->
         MyMonad (Maybe (Subst, E.Equiv Name))
 m a t equiv
-    = do let as     = E.equivalenceClass equiv a
+    = trace "m" $
+      do let as     = E.equivalenceClass equiv a
          let n      = S.size as
          let (as0, bs0)
                     = shGet t
@@ -317,7 +360,7 @@ shPut' (TyPair t1 t2)  (as0, bs0) = let (t1', as1, bs1) = shPut' t1 (as0, bs0)
                                         (t2', as2, bs2) = shPut' t2 (as1, bs1)
                                      in (TyPair t1' t2', as2, bs2)
 shPut' (TyFun t1 b t2) (as0, bs0) = let (t1', as1, b':bs1) = shPut' t1 (as0, bs0)
-                                        (t2', as2,    bs2) = shPut' t2 (as1, bs2)
+                                        (t2', as2,    bs2) = shPut' t2 (as1, bs1)
                                      in (TyFun t1' b' t2', as2, bs2)
 shPut' (TyList t)      (as, bs)   = let (t', as', bs') = shPut' t (as, bs)
                                      in (TyList t', as', bs')
@@ -328,6 +371,33 @@ shPut' (TyCom t b)     (as, bs)   = let (t', as', b':bs') = shPut' t (as, bs)
 
 (+++) :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
 (xs1, ys1) +++ (xs2, ys2) = (xs1 ++ xs2, ys1 ++ ys2)
+
+-- * Ruduction
+
+reduce :: Constr -> Ty -> Be -> TyEnv -> MyMonad (Constr, Ty, Be)
+reduce c t b env = return (c, t, b)
+
+redund :: Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
+redund c (TyVar  g' :<:  TyVar  g) t b
+    | reachable c g' g = return $ Just (c, t, b)
+redund c (BeUnif g' :<*: BeUnif g) t b
+    | reachable c g' g = return $ Just (c, t, b)
+
+-- PERFORMANCE: completely recalculating this every time will be quite expensive
+-- is there a data structure for online RT/reachability computation?
+-- alternatively, use a (shortest) path algorithm
+reachable :: Constr -> Name -> Name -> Bool
+reachable c y' y
+    = let f0 = S.foldr reachabilityHelper M.empty c
+          fc = transitiveClosure (reflexiveClosure f0)  -- reflexivity?
+       in S.member y' (fromMaybe (error "X") (M.lookup y fc))
+
+reachabilityHelper :: Constr' -> M.Map Name (S.Set Name) -> M.Map Name (S.Set Name)
+-- PERFORMANCE: Change S.union to S.insert/S.singleton depending on existence
+reachabilityHelper (TyVar  g1 :<:  TyVar  g2) m
+    = M.insertWith S.union g2 (S.singleton g1) m
+reachabilityHelper (BeUnif g1 :<*: BeUnif g2) m
+    = M.insertWith S.union g2 (S.singleton g1) m
 
 -- * Primitive types
 
@@ -415,7 +485,8 @@ inst (Forall as bs c t)
 -- * Generalization
          
 gen env b c t
-    = let abs = (fv t `biClose` c) `S.difference` ((fv env `S.union` fv b) `downClose` c)
+    = -- trace "gen" $
+      let abs = (fv t `biClose` c) `S.difference` ((fv env `S.union` fv b) `downClose` c)
           as  = abs `S.intersection` (ftv t `S.union` ftv env `S.union` ftv b)
           bs  = abs `S.intersection` (fbv t `S.union` fbv env `S.union` fbv b)
           c0  = S.filter f c
@@ -456,7 +527,7 @@ symmetricClosure :: Ord a => M.Map a (S.Set a) -> M.Map a (S.Set a)
 symmetricClosure m
     = M.foldrWithKey (\k v r -> S.foldr (\v' r' -> M.insertWith S.union v' (S.singleton k) r') r v) m m
 
-transitiveClosure :: Ord a => M.Map a (S.Set a) -> M.Map a (S.Set a)
+transitiveClosure :: (Ord a, Show a) => M.Map a (S.Set a) -> M.Map a (S.Set a)
 transitiveClosure m
     = foldr reconstruct m . reverse . G.stronglyConnComp . toEdgeList $ m
 
@@ -464,35 +535,41 @@ toEdgeList :: M.Map k (S.Set a) -> [((k, S.Set a), k, [a])]
 toEdgeList
     = M.foldrWithKey (\k v -> (:) ((k, v), k, S.toList v)) []
 
-reconstruct :: Ord a => G.SCC (a, S.Set a) -> M.Map a (S.Set a) -> M.Map a (S.Set a)
+reconstruct :: (Ord a, Show a) => G.SCC (a, S.Set a) -> M.Map a (S.Set a) -> M.Map a (S.Set a)
 reconstruct (G.AcyclicSCC (k, v)) r
     = let v' = S.foldr (\k r' -> fromMaybe (error "reconstruct (AcyclicSCC)") (M.lookup k r) `S.union` r') v v
        in M.insert k v' r
 reconstruct (G.CyclicSCC  kvs   ) r
     = let v  = S.unions (map snd kvs)
-          v' = S.foldr (\k r' -> fromMaybe (error "reconstruct (CyclicSCC)") (M.lookup k r) `S.union` r') v v
+          v' = S.foldr (\k r' -> fromMaybe (error $ "reconstruct (CyclicSCC)" ++ show kvs) (M.lookup k r) `S.union` r') v v
        in foldr (\(k, _) -> M.insert k v') r kvs
 
 -- | Logging
 
 message :: String -> MyMonad ()
-message m = do (s, s', ms) <- get
-               put (s, s', m:ms)
-               return ()
+message m
+    = -- trace m $
+      do (s, s', ms) <- get
+         put (s, s', ms ++ [m])
+         return ()
                
 -- | Inference tree (typing derivation)
 
 type InferenceTree r = Z.TreePos Z.Full r
+
+data Rule = W Constr Constr Subst
+          | W' TyEnv Expr Ty Be Constr Subst
+          deriving Show
              
 down, up :: MyMonad ()
 down = modifySnd (Z.insert emptyInferenceTree . Z.children)
 up   = modifySnd (fromJust . Z.parent)
 
-putRule :: String -> MyMonad ()
+putRule :: Rule -> MyMonad ()
 putRule = modifySnd . Z.setLabel
 
-modifySnd :: (String -> String) -> MyMonad ()
-modifySnd f = modify (\(a, b, c) -> (a, b, f c))
+modifySnd :: (InferenceTree Rule -> InferenceTree Rule) -> MyMonad ()
+modifySnd f = modify (\(a, b, c) -> (a, f b, c))
 
 emptyInferenceTree = T.Node (error "derivation not specified") []
 
@@ -502,8 +579,8 @@ class Fresh a where
     fresh :: MyMonad a
     
 instance Fresh Name where
-    fresh = do (x:xs, s') <- get
-               put (xs, s')
+    fresh = do (x:xs, s', s'') <- get
+               put (xs, s', s'')
                return x
                
 instance (Fresh a, Fresh b) => Fresh (a, b) where
@@ -617,7 +694,7 @@ instance Substitute Ident where
     Subst _ bv $@ u | Just u' <- M.lookup u bv = u'
                     | otherwise                = u
 
-instance Substitute Subst where
+instance Substitute Subst where -- FIXME: dangerous to expose to the outside world...
     subst $@ (Subst tv bv)
         = Subst (M.map (subst $@) tv) (M.map (subst $@) bv)
      
