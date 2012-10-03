@@ -375,22 +375,83 @@ shPut' (TyCom t b)     (as, bs)   = let (t', as', b':bs') = shPut' t (as, bs)
 -- * Ruduction
 
 reduce :: Constr -> Ty -> Be -> TyEnv -> MyMonad (Constr, Ty, Be)
-reduce c t b env = return (c, t, b)
+reduce c t b env
+    = reduceAll [ processAll    redund, processNone   cycle
+                , processSingle shrink, processSingle boost ]
+    where reduceAll [] = reduceAll 
+--  = return (c, t, b)
 
-redund :: Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
-redund c (TyVar  g' :<:  TyVar  g) t b
+redund :: TyEnv -> Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
+redund _ c (TyVar  g' :<:  TyVar  g) t b
     | reachable c g' g = return $ Just (c, t, b)
-redund c (BeUnif g' :<*: BeUnif g) t b
+redund _ c (BeUnif g' :<*: BeUnif g) t b
     | reachable c g' g = return $ Just (c, t, b)
+redund _ _ _ _ _
+    = return Nothing
+
+cycle :: TyEnv -> Constr -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
+cycle env c t b
+    | ((g, g'):_) <- [(g, g') | g <- S.toList (fv c), g' <- S.toList (fv c)
+    , g /= g', g `S.notMember` fv env, reachable c g g', reachable c g' g]
+    = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
+cycle _ _ _ _
+    = return Nothing
+
+shrink :: TyEnv -> Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
+shrink env c (TyVar  g' :<:  TyVar  g) t b
+    | g' /= g, g `S.notMember` fv env, g `S.notMember` fv (rhs c), monotonic
+    = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
+        where monotonic = let (lht, lhb) = lhs c
+                           in and (map (`isMonotonicIn` g) (t : S.toList lht))
+                              && and (map (`isMonotonicIn` g) (b : S.toList lhb))
+shrink env c (BeUnif g' :<*: BeUnif g) t b
+    | g' /= g, g `S.notMember` fv env, g `S.notMember` fv (rhs c), monotonic
+    = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
+        where monotonic = let (lht, lhb) = lhs c
+                           in and (map (`isMonotonicIn` g) (t : S.toList lht))
+                              && and (map (`isMonotonicIn` g) (b : S.toList lhb))
+shrink _ _ _ _ _
+    = return Nothing
+                              
+boost :: TyEnv -> Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
+boost env c (TyVar  g :<:  TyVar  g') t b
+    | g' /= g, g `S.notMember` fv env, antimonotonic
+    = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
+        where antimonotonic = let (lht, lhb) = lhs c
+                               in and (map (`isAntimonotonicIn` g) (t : S.toList lht))
+                                  && and (map (`isAntimonotonicIn` g) (b : S.toList lhb))
+boost env c (BeUnif g :<*: BeUnif g') t b
+    | g' /= g, g `S.notMember` fv env, antimonotonic
+    = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
+        where antimonotonic = let (lht, lhb) = lhs c
+                               in and (map (`isAntimonotonicIn` g) (t : S.toList lht))
+                                  && and (map (`isAntimonotonicIn` g) (b : S.toList lhb))
+boost _ _ _ _ _
+    = return Nothing
+
+lhs :: Constr -> (S.Set Ty, S.Set Be)
+lhs = S.foldr lhs' (S.empty, S.empty)
+    where lhs' (t :<:  _) (ts, bs) = (S.insert t ts, bs)
+          lhs' (b :<*: _) (ts, bs) = (ts, S.insert b bs)
+
+rhs :: Constr -> (S.Set Ty, S.Set Be)
+rhs = S.foldr rhs' (S.empty, S.empty)
+    where rhs' (_ :<:  t) (ts, bs) = (S.insert t ts, bs)
+          rhs' (_ :<*: b) (ts, bs) = (ts, S.insert b bs)
+          
+evilSubst :: Name -> Name -> Subst {- FIXME: this substitution is an evil hack -}
+evilSubst g g' = Subst (M.singleton g (TyVar g')) (M.singleton g g')
 
 -- PERFORMANCE: completely recalculating this every time will be quite expensive
 -- is there a data structure for online RT/reachability computation?
+--    * www.cs.tau.ac.il/~zwick/slides/dynamic-uri.ppt (decremental reachability)
 -- alternatively, use a (shortest) path algorithm
 reachable :: Constr -> Name -> Name -> Bool
-reachable c y' y
-    = let f0 = S.foldr reachabilityHelper M.empty c
+reachable c y y'
+    = let m0 = S.foldr (\g -> M.insert g (S.singleton g)) M.empty (fv c)
+          f0 = S.foldr reachabilityHelper m0 c
           fc = transitiveClosure (reflexiveClosure f0)  -- reflexivity?
-       in S.member y' (fromMaybe (error "X") (M.lookup y fc))
+       in S.member y (fromMaybe (error "reachable") (M.lookup y' fc))
 
 reachabilityHelper :: Constr' -> M.Map Name (S.Set Name) -> M.Map Name (S.Set Name)
 -- PERFORMANCE: Change S.union to S.insert/S.singleton depending on existence
@@ -398,6 +459,54 @@ reachabilityHelper (TyVar  g1 :<:  TyVar  g2) m
     = M.insertWith S.union g2 (S.singleton g1) m
 reachabilityHelper (BeUnif g1 :<*: BeUnif g2) m
     = M.insertWith S.union g2 (S.singleton g1) m
+
+-- * Monotonicity
+
+class Monotonicity a where
+    na :: a -> S.Set Name
+    nm :: a -> S.Set Name
+    
+instance Monotonicity Ty where
+    na (TyVar a)        = S.singleton a
+    na  TyUnit          = S.empty
+    na  TyInt           = S.empty
+    na  TyBool          = S.empty
+    na (TyFun  t1 b t2) = nm t1 `S.union` na b `S.union` na t2
+    na (TyPair t1   t2) = na t1 `S.union` na t2
+    na (TyList t      ) = na t
+    na (TyChan t      ) = fv t
+    na (TyCom  t  b   ) = na t `S.union` na b
+    
+    nm (TyVar a)        = S.empty
+    nm  TyUnit          = S.empty
+    nm  TyInt           = S.empty
+    nm  TyBool          = S.empty
+    nm (TyFun  t1 b t2) = na t1 `S.union` nm b `S.union` nm t2
+    nm (TyPair t1   t2) = nm t1 `S.union` nm t2
+    nm (TyList t      ) = nm t
+    nm (TyChan t      ) = fv t
+    nm (TyCom  t  b   ) = nm t `S.union` nm b
+
+
+instance Monotonicity Be' where
+    na (BeVar  b) = S.singleton b
+    na (BeChan t) = fv t
+    
+    nm (BeVar  b) = S.empty
+    nm (BeChan t) = fv t
+
+instance Monotonicity Be where
+    na (BeUnif b ) = S.singleton b
+    na (Be     bs) = unionMap na bs
+    
+    nm (BeUnif b ) = S.empty
+    nm (Be     bs) = unionMap na bs
+    
+isMonotonicIn :: Monotonicity g => g -> Name -> Bool
+isMonotonicIn g y = y `S.notMember` nm g
+
+isAntimonotonicIn :: Monotonicity g => g -> Name -> Bool
+isAntimonotonicIn g y = y `S.notMember` na g
 
 -- * Primitive types
 
@@ -541,7 +650,7 @@ reconstruct (G.AcyclicSCC (k, v)) r
        in M.insert k v' r
 reconstruct (G.CyclicSCC  kvs   ) r
     = let v  = S.unions (map snd kvs)
-          v' = S.foldr (\k r' -> fromMaybe (error $ "reconstruct (CyclicSCC)" ++ show kvs) (M.lookup k r) `S.union` r') v v
+          v' = S.foldr (\k r' -> fromMaybe (error "reconstruct (CyclicSCC)") (M.lookup k r) `S.union` r') v v
        in foldr (\(k, _) -> M.insert k v') r kvs
 
 -- | Logging
@@ -613,6 +722,14 @@ freshIdents = map (\n -> "_{" ++ show n ++ "}") [1..]
 class FV t where
     ftv, fbv, fv :: t -> S.Set Ident
     fv x = ftv x `S.union` fbv x
+    
+instance (FV a, FV b) => FV (a, b) where
+    ftv (x, y) = ftv x `S.union` ftv y
+    fbv (x, y) = fbv x `S.union` fbv y
+    
+instance (FV a, Ord a) => FV (S.Set a) where
+    ftv = unionMap ftv
+    fbv = unionMap fbv
 
 instance FV Ty where
     ftv (TyVar a)       = S.singleton a
@@ -664,10 +781,6 @@ instance FV Constr' where
     fbv (t1 :<:  t2) = fbv t1 `S.union` fbv t2
     fbv (b1 :<*: b2) = fbv b1 `S.union` fbv b2
 
-instance FV Constr where
-    ftv = unionMap ftv
-    fbv = unionMap fbv
-    
 -- | Substitutions
 
 infixr 0 $@
