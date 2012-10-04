@@ -4,30 +4,29 @@
 module Main (main) where
 
 -- PERFORMANCE: commutativity and associativity of S.union (bigset `S.union` smallset)
+--              M.findWithDefault
 --              TyScheme, quantified variables as list or set?
 
-import Prelude                            hiding (cycle)
+import           Prelude                hiding (cycle)
 
 import           Control.Monad
 import           Control.Monad.Identity
 import           Control.Monad.State
 
-import qualified Data.Graph          as G
-import qualified Data.List           as L
-import qualified Data.Map            as M
+import qualified Data.Graph             as G
+import qualified Data.List              as L
+import qualified Data.Map               as M
 import           Data.Maybe
-import qualified Data.Set            as S
-import qualified Data.Tree           as T
-import qualified Data.Tree.Zipper    as Z
+import qualified Data.Set               as S
+import qualified Data.Tree              as T
+import qualified Data.Tree.Zipper       as Z               -- == rose-zipper-0.2
 
-import qualified Equiv               as E
+import qualified Equiv                  as E               -- => union-find-0.2
 
-import qualified Debug.Trace         as D
+import qualified Debug.Trace            as D
 
 trace = (\a b -> b)
 -- trace = D.trace
-
-type MyMonad r = State ([Name], InferenceTree Rule, [String]) r
 
 main = do let expr = exI
           let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
@@ -134,6 +133,10 @@ injTS = Forall [] [] S.empty
 
 type TyEnv = M.Map Ident TyScheme
 
+-- * Monad
+
+type MyMonad r = State ([Name], InferenceTree Rule, [String]) r
+
 -- * Inference
 
 infer :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
@@ -142,7 +145,7 @@ infer env e
       do down
          (s1, t1, b1, c1) <- infer' env e
          (s2,         c2) <- force c1
-         Identity (c3, t3, b3) <- doNotReduce (s2 $@ s1 $@ env) c2 (s2 $@ t1) (s2 $@ b1)
+         Identity (c3, t3, b3) <- reduce (s2 $@ s1 $@ env) c2 (s2 $@ t1) (s2 $@ b1)
          up
          putRule (W c1 c2 s2)
          return (s2 $. s1, t3, b3, c3)
@@ -378,7 +381,7 @@ shPut' (TyCom t b)     (as, bs)   = let (t', as', b':bs') = shPut' t (as, bs)
 (+++) :: ([a], [b]) -> ([a], [b]) -> ([a], [b])
 (xs1, ys1) +++ (xs2, ys2) = (xs1 ++ xs2, ys1 ++ ys2)
 
--- * Ruduction
+-- * Reduction
 
 type Always = Identity
 
@@ -405,15 +408,15 @@ reduceAll (p:ps) env c t b = do maybeCTB <- p env c t b
                                 case maybeCTB of
                                     Nothing -> reduceAll ps env c t b
                                     justCTB -> return justCTB
-    
+
 processRedund :: (Constr -> Constr' -> Bool) -> Constr -> MyMonad (Constr)
 processRedund f c = process' S.empty c
     where process' u w
             = do case S.minView w of
                    Nothing       -> return u
-                   Just (c', w') -> case f (u `S.union` w) c' of
-                                       False -> process' (c' `S.insert` u) w'
-                                       True  -> process' u w'
+                   Just (c', w') -> if f (u `S.union` w') c'
+                                    then process'                u  w'
+                                    else process' (c' `S.insert` u) w'
 
 processCycle :: ReductionRule Maybe -> ReductionRule Maybe
 processCycle = id
@@ -498,7 +501,7 @@ reachable c y y'
     = let m0 = S.foldr (\g -> M.insert g (S.singleton g)) M.empty (fv c)
           f0 = S.foldr reachabilityHelper m0 c
           fc = transitiveClosure (reflexiveClosure f0)  -- reflexivity?
-       in S.member y (fromMaybe (error "reachable") (M.lookup y' fc))
+       in S.member y (M.findWithDefault S.empty y' fc)
 
 reachabilityHelper :: Constr' -> M.Map Name (S.Set Name) -> M.Map Name (S.Set Name)
 -- PERFORMANCE: Change S.union to S.insert/S.singleton depending on existence
@@ -580,11 +583,23 @@ typeOf Fst
 typeOf Snd
     = Forall ["a1", "a2"] [] S.empty
         (TyFun (TyPair (TyVar "a1") (TyVar "a2")) (Be S.empty) (TyVar "a2"))
-typeOf Nil      = undefined
-typeOf Cons     = undefined
-typeOf Hd       = undefined
-typeOf Tl       = undefined
-typeOf IsNil    = undefined
+typeOf Nil
+    = Forall ["a"] [] S.empty
+        (TyList (TyVar "a"))
+typeOf Cons
+    = Forall ["a"] [] S.empty
+        (TyFun (TyVar "a")
+               (Be S.empty)
+               (TyFun (TyList (TyVar "a")) (Be S.empty) (TyList (TyVar "a"))))
+typeOf Hd
+    = Forall ["a"] [] S.empty
+        (TyFun (TyList (TyVar "a")) (Be S.empty) (TyVar "a"))
+typeOf Tl
+    = Forall ["a"] [] S.empty
+        (TyFun (TyList (TyVar "a")) (Be S.empty) (TyList (TyVar "a")))
+typeOf IsNil
+    = Forall ["a"] [] S.empty
+        (TyFun (TyList (TyVar "a")) (Be S.empty) TyBool)
 typeOf Send
     = Forall ["a"] [] S.empty
         (TyFun (TyPair (TyChan (TyVar "a")) (TyVar "a")) (Be S.empty)

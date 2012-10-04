@@ -8,7 +8,7 @@ import qualified Data.Map              as M
 import           Data.Maybe
 import qualified Data.Set              as S
 
-import qualified Data.UnionFind.IntMap as UF       -- union-find-0.2
+import qualified Data.UnionFind.IntMap as UF               -- == union-find-0.2
 
 -- | Exported data types and functions
 
