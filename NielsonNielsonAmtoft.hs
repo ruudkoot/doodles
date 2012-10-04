@@ -6,7 +6,10 @@ module Main (main) where
 -- PERFORMANCE: commutativity and associativity of S.union (bigset `S.union` smallset)
 --              TyScheme, quantified variables as list or set?
 
+import Prelude                            hiding (cycle)
+
 import           Control.Monad
+import           Control.Monad.Identity
 import           Control.Monad.State
 
 import qualified Data.Graph          as G
@@ -29,11 +32,14 @@ type MyMonad r = State ([Name], InferenceTree Rule, [String]) r
 main = do let expr = exI
           let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
           let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
-          putStrLn $ "Messages    : \n" ++ unlines msgs
+          putStrLn $ "== MESSAGES ============================================="
+          putStr   $ unlines msgs
+          putStrLn $ "== RESULTS =============================================="
           putStrLn $ "Type        : " ++ show t
           putStrLn $ "Behaviour   : " ++ show b
           putStrLn $ "Constraints : " ++ show c
           putStrLn $ "Substitution: " ++ show s
+          putStrLn $ "== INFERENCE TREE ======================================="
           putStrLn $ T.drawTree (fmap show (Z.toTree tree))
           
 exA = Let "id" (Fn "x" (Var "x")) (Var "id")
@@ -136,7 +142,7 @@ infer env e
       do down
          (s1, t1, b1, c1) <- infer' env e
          (s2,         c2) <- force c1
-         (c3, t3, b3    ) <- reduce c2 (s2 $@ t1) (s2 $@ b1) (s2 $@ s1 $@ env)
+         Identity (c3, t3, b3) <- doNotReduce (s2 $@ s1 $@ env) c2 (s2 $@ t1) (s2 $@ b1)
          up
          putRule (W c1 c2 s2)
          return (s2 $. s1, t3, b3, c3)
@@ -374,22 +380,63 @@ shPut' (TyCom t b)     (as, bs)   = let (t', as', b':bs') = shPut' t (as, bs)
 
 -- * Ruduction
 
-reduce :: Constr -> Ty -> Be -> TyEnv -> MyMonad (Constr, Ty, Be)
-reduce c t b env
-    = reduceAll [ processAll    redund, processNone   cycle
-                , processSingle shrink, processSingle boost ]
-    where reduceAll [] = reduceAll 
---  = return (c, t, b)
+type Always = Identity
 
-redund :: TyEnv -> Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
-redund _ c (TyVar  g' :<:  TyVar  g) t b
-    | reachable c g' g = return $ Just (c, t, b)
-redund _ c (BeUnif g' :<*: BeUnif g) t b
-    | reachable c g' g = return $ Just (c, t, b)
-redund _ _ _ _ _
-    = return Nothing
+type ReductionRule succeeds
+    = TyEnv -> Constr -> Ty -> Be -> MyMonad (succeeds (Constr, Ty, Be))
 
-cycle :: TyEnv -> Constr -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
+doNotReduce :: ReductionRule Always
+doNotReduce _ c t b = return $ Identity (c, t, b)
+
+reduce :: ReductionRule Always
+reduce env c t b
+    = do c' <- processRedund redund c
+         maybeCTB <- reduceAll [ processCycle  cycle
+                               , processTrans  shrink
+                               , processTrans  boost  ]
+                               env c' t b
+         case maybeCTB of
+            Nothing            -> return $ Identity (c', t, b)
+            Just (c'', t', b') -> reduce env c'' t' b'
+
+reduceAll :: [ReductionRule Maybe] -> ReductionRule Maybe
+reduceAll []     env c t b = return Nothing
+reduceAll (p:ps) env c t b = do maybeCTB <- p env c t b
+                                case maybeCTB of
+                                    Nothing -> reduceAll ps env c t b
+                                    justCTB -> return justCTB
+    
+processRedund :: (Constr -> Constr' -> Bool) -> Constr -> MyMonad (Constr)
+processRedund f c = process' S.empty c
+    where process' u w
+            = do case S.minView w of
+                   Nothing       -> return u
+                   Just (c', w') -> case f (u `S.union` w) c' of
+                                       False -> process' (c' `S.insert` u) w'
+                                       True  -> process' u w'
+
+processCycle :: ReductionRule Maybe -> ReductionRule Maybe
+processCycle = id
+
+processTrans :: (Constr' -> ReductionRule Maybe) -> ReductionRule Maybe
+processTrans f env c t b = process' S.empty c
+    where process' u w
+            = do case S.minView w of
+                    Nothing -> return Nothing
+                    Just (c', w') -> do maybeCTB <- f c' env (u `S.union` w') t b
+                                        case maybeCTB of
+                                            Nothing -> process' (c' `S.insert` u) w'
+                                            justCTB -> return justCTB
+
+redund :: Constr -> Constr' -> Bool
+redund c (TyVar  g' :<:  TyVar  g)
+    | reachable c g' g = True
+redund c (BeUnif g' :<*: BeUnif g)
+    | reachable c g' g = True
+redund _ _
+    = False
+
+cycle :: ReductionRule Maybe
 cycle env c t b
     | ((g, g'):_) <- [(g, g') | g <- S.toList (fv c), g' <- S.toList (fv c)
     , g /= g', g `S.notMember` fv env, reachable c g g', reachable c g' g]
@@ -397,14 +444,14 @@ cycle env c t b
 cycle _ _ _ _
     = return Nothing
 
-shrink :: TyEnv -> Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
-shrink env c (TyVar  g' :<:  TyVar  g) t b
+shrink :: Constr' -> ReductionRule Maybe
+shrink (TyVar  g' :<:  TyVar  g) env c t b
     | g' /= g, g `S.notMember` fv env, g `S.notMember` fv (rhs c), monotonic
     = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
         where monotonic = let (lht, lhb) = lhs c
                            in and (map (`isMonotonicIn` g) (t : S.toList lht))
                               && and (map (`isMonotonicIn` g) (b : S.toList lhb))
-shrink env c (BeUnif g' :<*: BeUnif g) t b
+shrink (BeUnif g' :<*: BeUnif g) env c t b
     | g' /= g, g `S.notMember` fv env, g `S.notMember` fv (rhs c), monotonic
     = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
         where monotonic = let (lht, lhb) = lhs c
@@ -413,14 +460,14 @@ shrink env c (BeUnif g' :<*: BeUnif g) t b
 shrink _ _ _ _ _
     = return Nothing
                               
-boost :: TyEnv -> Constr -> Constr' -> Ty -> Be -> MyMonad (Maybe (Constr, Ty, Be))
-boost env c (TyVar  g :<:  TyVar  g') t b
+boost :: Constr' -> ReductionRule Maybe
+boost (TyVar  g :<:  TyVar  g') env c t b
     | g' /= g, g `S.notMember` fv env, antimonotonic
     = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
         where antimonotonic = let (lht, lhb) = lhs c
                                in and (map (`isAntimonotonicIn` g) (t : S.toList lht))
                                   && and (map (`isAntimonotonicIn` g) (b : S.toList lhb))
-boost env c (BeUnif g :<*: BeUnif g') t b
+boost (BeUnif g :<*: BeUnif g') env c t b
     | g' /= g, g `S.notMember` fv env, antimonotonic
     = let s = evilSubst g g' in return $ Just (s $@ c, s $@ t, s $@ b)
         where antimonotonic = let (lht, lhb) = lhs c
