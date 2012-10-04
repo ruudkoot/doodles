@@ -23,12 +23,9 @@ import qualified Data.Tree.Zipper       as Z               -- == rose-zipper-0.2
 
 import qualified Equiv                  as E               -- => union-find-0.2
 
-import qualified Debug.Trace            as D
+-- | Main
 
-trace = (\a b -> b)
--- trace = D.trace
-
-main = do let expr = exI
+main = do let expr = exC
           let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
           let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
           putStrLn $ "== MESSAGES ============================================="
@@ -40,26 +37,27 @@ main = do let expr = exI
           putStrLn $ "Substitution: " ++ show s
           putStrLn $ "== INFERENCE TREE ======================================="
           putStrLn $ T.drawTree (fmap show (Z.toTree tree))
+
+-- * Examples
           
 exA = Let "id" (Fn "x" (Var "x")) (Var "id")
 exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Con (Bool True))
-exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id")
+exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id") -- DOES NOT TYPECHECK
 exD = Con (Bool True)
 exE = Con (Int 42)
 exF = Fn "x" (Con (Bool True))
 exG = Fn "x" (Var "x")
 exH = Fn "x" (Var "x") `App` (Con (Bool True))
 exI = (Fn "x" (Var "x")) `App` (Fn "y" (Var "y"))
-
           
 ex230 = Fn "f" (Let "id" (Fn "y" (
                            (If (Con (Bool True))
                                (Var "f")
-                               (Fn "x" (Con Sync `App` (Con Send `App`
+                               (Fn "x" ((Con Sync `App` (Con Send `App`
                                             _pair (Con Channel `App` Con Unit)
                                                   (Var "y"))) `_seq`
                                        (Var "x")))) `_seq`
-                           (Var "y"))
+                           (Var "y")))
                     (Var "id" `App` Var "id"))
 
 _seq :: Expr -> Expr -> Expr
@@ -67,6 +65,11 @@ _seq e1 e2 = Con Snd `App` (Con Pair `App` e1 `App` e2)
 
 _pair :: Expr -> Expr -> Expr
 _pair e1 e2 = Con Pair `App` e1 `App` e2
+
+-- * Testing
+
+transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
+transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
 
 -- | Syntax
 
@@ -141,10 +144,9 @@ type MyMonad r = State ([Name], InferenceTree Rule, [String]) r
 
 infer :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
 infer env e
-    = trace "infer" $
-      do down
+    = do down
          (s1, t1, b1, c1) <- infer' env e
-         (s2,         c2) <- force c1
+         (s2,         c2) <- force env c1
          Identity (c3, t3, b3) <- reduce (s2 $@ s1 $@ env) c2 (s2 $@ t1) (s2 $@ b1)
          up
          putRule (W c1 c2 s2)
@@ -160,7 +162,7 @@ infer' env e@(Var x)
     | Just ts <- M.lookup x env = do (s, t, b, c) <- inst ts
                                      putRule (W' env e t b c s)
                                      return (s, t, b, c)
-    | otherwise                 = error "variable not in scope"
+    | otherwise                 = error $ "variable '" ++ x ++ "' not in scope " ++ show env
 infer' env e@(Fn x e0)
     = do down
          a <- fresh
@@ -211,15 +213,15 @@ infer' env e@(If e0 e1 e2)
                 , s2 $@ s1 $@ c0 `S.union` (s2 $@ c1) `S.union` c2 `S.union`
                     S.fromList [s2 $@ s1 $@ t0 :<: TyBool, s2 $@ t1 :<: a, t2 :<: a] )
 
--- * Forcing/matching
+-- * Forcing (decompostion and matching)
 
-force :: Constr -> MyMonad (Subst, Constr)
-force c = trace "force" $
-          do message "|Forcing|"
-             (s', c', _) <- rewrite (idSubst, c, eqc c)
-             if atomic c'
-                then return (s', c')
-                else error $ "forcing failed: " ++ show c'
+force :: TyEnv -> Constr -> MyMonad (Subst, Constr)
+force env c -- FIXME: env only needed to print error message
+    = do message "|Forcing|"
+         (s', c', _) <- rewrite (idSubst, c, eqc c)
+         if atomic c'
+            then return (s', c')
+            else error $ "forcing failed: " ++ show c' ++ show env
                 
 eqc :: Constr -> E.Equiv Name
 eqc = S.foldr E.insert E.empty . ftv
@@ -228,13 +230,13 @@ atomic :: Constr -> Bool -- FIXME: is this strict/lenient enough?
 atomic = and . map atomic' . S.toList
     where atomic' (TyVar  _ :<:  TyVar  _) = True
           atomic' (Be chan  :<*: BeUnif _) | [BeChan _] <- S.toList chan = True
+          atomic' (Be var   :<*: BeUnif _) | [BeVar  _] <- S.toList var  = True -- FIXME: promote?
           atomic' (BeUnif _ :<*: BeUnif _) = True
           atomic' _                        = False
 
 rewrite :: (Subst, Constr, E.Equiv Name) -> MyMonad (Subst, Constr, E.Equiv Name)
 rewrite (s, c, eq)
-    = trace "rewrite" $
-      do dc <- process decompose c
+    = do dc <- process decompose c
          when (c /= dc) $
             do message $ "Decompose: " ++ show c
                message $ "        ~> " ++ show dc
@@ -253,16 +255,16 @@ rewrite (s, c, eq)
 process :: (Ord a, Show a) => (a -> Maybe (S.Set a)) -> S.Set a -> MyMonad (S.Set a)
 process f x = process' S.empty x
     where process' u w
-            = trace ("process (" ++ show w ++ ")") $
-              do case S.minView w of
+            = do case S.minView w of
                    Nothing       -> return u
                    Just (c', w') -> case f c' of
                                        Nothing  -> process' (c' `S.insert` u) w'
                                        Just w'' -> process' u (w' `S.union` w'')
 
 decompose :: Constr' -> Maybe Constr
-decompose (Be bs :<*: b)  -- \emptyset and \cup
+decompose (Be bs :<*: b)  -- \emptyset and \cup + custom promotion rule
     | S.size bs /= 1 = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
+--  | S.size bs == 1, Just (BeVar b', _) <- S.minView bs = Just $ S.singleton (BeUnif b' :<*: b)
 decompose (TyUnit :<: TyUnit)
     = Just $ S.empty
 decompose (TyBool :<: TyBool)
@@ -286,22 +288,19 @@ process2 :: (Subst, Constr, E.Equiv Name) ->
                 MyMonad (Maybe (Subst, Constr, E.Equiv Name))
 process2 = process' S.empty
     where process' u (s, w, eq)
-            = trace "process2" $
-              do case S.minView w of
-                   Nothing       -> trace "1" $ return Nothing
+            = do case S.minView w of
+                   Nothing       -> return Nothing
                    Just (c', w') ->
-                        trace "2" $ 
                         do maybeSCE <- mrml (s, u `S.union` w', eq) c'
                            case maybeSCE of 
-                                Nothing -> trace "3" $ process' (c' `S.insert` u) (s, w', eq)
-                                result  -> trace "4" $ return result
+                                Nothing -> process' (c' `S.insert` u) (s, w', eq)
+                                result  -> return result
 
 mrml :: (Subst, Constr, E.Equiv Name) -> Constr' ->
             MyMonad (Maybe (Subst, Constr, E.Equiv Name))
 mrml (s, c, equiv) (t :<: TyVar a)
-    = trace "mrml (t :<: a)" $
-      do maybeSE <- m a t equiv
-         case trace "mrmlTA" $ maybeSE of
+    = do maybeSE <- m a t equiv
+         case maybeSE of
             Nothing          -> 
                 return $ Nothing
             Just (r, equiv') ->
@@ -309,9 +308,8 @@ mrml (s, c, equiv) (t :<: TyVar a)
                               , S.insert ((r $@ t) :<: (r $@ (TyVar a))) (r $@ c)
                               , equiv' )
 mrml (s, c, equiv) (TyVar a :<: t)
-    = trace "mrml (t :<: a)" $
-      do maybeSE <- m a t equiv
-         case trace "mrmlAT" $ maybeSE of
+    = do maybeSE <- m a t equiv
+         case maybeSE of
             Nothing          ->
                 return $ Nothing
             Just (r, equiv') ->
@@ -324,8 +322,7 @@ mrml _             _
 m :: Name -> Ty -> E.Equiv Name ->
         MyMonad (Maybe (Subst, E.Equiv Name))
 m a t equiv
-    = trace "m" $
-      do let as     = E.equivalenceClass equiv a
+    = do let as     = E.equivalenceClass equiv a
          let n      = S.size as
          let (as0, bs0)
                     = shGet t
@@ -509,6 +506,12 @@ reachabilityHelper (TyVar  g1 :<:  TyVar  g2) m
     = M.insertWith S.union g2 (S.singleton g1) m
 reachabilityHelper (BeUnif g1 :<*: BeUnif g2) m
     = M.insertWith S.union g2 (S.singleton g1) m
+reachabilityHelper (Be bs :<*: BeUnif g2) m
+    | S.size bs == 1, Just (BeVar g1, _) <- S.minView bs
+        = M.insertWith S.union g2 (S.singleton g1) m
+    | S.size bs == 1, Just (BeChan _, _) <- S.minView bs
+        = m
+reachabilityHelper x                    _ = error $ show x
 
 -- * Monotonicity
 
@@ -656,8 +659,7 @@ inst (Forall as bs c t)
 -- * Generalization
          
 gen env b c t
-    = -- trace "gen" $
-      let abs = (fv t `biClose` c) `S.difference` ((fv env `S.union` fv b) `downClose` c)
+    = let abs = (fv t {-`biClose` c) `S.difference` ((fv env `S.union` fv b) `downClose` c-})
           as  = abs `S.intersection` (ftv t `S.union` ftv env `S.union` ftv b)
           bs  = abs `S.intersection` (fbv t `S.union` fbv env `S.union` fbv b)
           c0  = S.filter f c
@@ -712,15 +714,14 @@ reconstruct (G.AcyclicSCC (k, v)) r
        in M.insert k v' r
 reconstruct (G.CyclicSCC  kvs   ) r
     = let v  = S.unions (map snd kvs)
-          v' = S.foldr (\k r' -> fromMaybe (error "reconstruct (CyclicSCC)") (M.lookup k r) `S.union` r') v v
+          v' = S.foldr (\k r' -> fromMaybe S.empty{-(error "reconstruct (CyclicSCC)")-} (M.lookup k r) `S.union` r') v v
        in foldr (\(k, _) -> M.insert k v') r kvs
 
 -- | Logging
 
 message :: String -> MyMonad ()
 message m
-    = -- trace m $
-      do (s, s', ms) <- get
+    = do (s, s', ms) <- get
          put (s, s', ms ++ [m])
          return ()
                
@@ -916,8 +917,3 @@ restrict = foldr M.delete
 
 unionMap :: (Ord a, Ord b) => (a -> S.Set b) -> S.Set a -> S.Set b
 unionMap f = S.unions . S.toList . S.map f
-
--- | Testing
-
-transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
-transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
