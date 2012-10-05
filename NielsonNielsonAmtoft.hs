@@ -71,6 +71,8 @@ _pair e1 e2 = Con Pair `App` e1 `App` e2
 transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
 transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
 
+someConstraints = S.fromList [TyVar "_{10}" :<: TyVar "_{3}",TyVar "_{11}" :<: TyVar "_{13}",TyVar "_{12}" :<: TyVar "_{10}",TyVar "_{3}" :<: TyVar "_{11}",BeUnif "_{14}" :<*: BeUnif "_{15}",BeUnif "_{2}" :<*: BeUnif "_{6}",BeUnif "_{4}" :<*: BeUnif "_{14}"]
+
 -- | Syntax
 
 type Name  = String
@@ -659,7 +661,13 @@ inst (Forall as bs c t)
 -- * Generalization
          
 gen env b c t
-    = let abs = (fv t {-`biClose` c) `S.difference` ((fv env `S.union` fv b) `downClose` c-})
+    = let abs = let fvtbc    = fv t `biClose` c
+                    fvenvbdc = (fv env `S.union` fv b) `downClose` c
+                 in if fv t `S.isSubsetOf` fvtbc
+                    then if (fv env `S.union` fv b) `S.isSubsetOf` fvenvbdc
+                         then fvtbc `S.difference` fvenvbdc
+                         else error "downclose shrunk"
+                    else error "biclose shrunk"
           as  = abs `S.intersection` (ftv t `S.union` ftv env `S.union` ftv b)
           bs  = abs `S.intersection` (fbv t `S.union` fbv env `S.union` fbv b)
           c0  = S.filter f c
@@ -669,25 +677,26 @@ gen env b c t
 
 -- * Closures
 
-upClose, downClose, biClose :: S.Set Name -> Constr -> S.Set Name
-
+{-upClose, -}
+downClose, biClose :: S.Set Name -> Constr -> S.Set Name
+{-
 upClose x c
     = let f0 = S.foldr closeHelper M.empty c
           fc = transitiveClosure (reflexiveClosure f0)
        in S.filter (\k -> not (S.null (fromMaybe (error "upClose") (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
-       
+-}
 downClose x c
     = let f0 = S.foldr closeHelper M.empty c
           fc = transitiveClosure (reflexiveClosure f0)
-       in S.filter (\k -> not (S.null (fromMaybe (error "downClose") (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
+       in S.foldr (\v r -> r `S.union` (M.findWithDefault (S.singleton v) v fc)) S.empty x
 
 biClose x c
     = let f0 = S.foldr closeHelper M.empty c
           fc = transitiveClosure (symmetricClosure (reflexiveClosure f0))
-       in S.filter (\k -> not (S.null (fromMaybe (error "biClose") (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
+       in S.foldr (\v r -> r `S.union` (M.findWithDefault (S.singleton v) v fc)) S.empty x
        
-closeHelper (g1 :<:  g2) r = S.foldr (\x -> M.insertWith S.union x (fv g2)) r (fv g1)
-closeHelper (g1 :<*: g2) r = S.foldr (\x -> M.insertWith S.union x (fv g2)) r (fv g1)
+closeHelper (g1 :<:  g2) r = S.foldr (\x -> M.insertWith S.union x (fv g1)) r (fv g2)
+closeHelper (g1 :<*: g2) r = S.foldr (\x -> M.insertWith S.union x (fv g1)) r (fv g2)
 
 -- * Reflexive transitive closure
 
