@@ -25,7 +25,7 @@ import qualified Equiv                  as E               -- => union-find-0.2
 
 -- | Main
 
-main = do let expr = exC
+main = do let expr = ex230
           let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
           let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
           putStrLn $ "== MESSAGES ============================================="
@@ -49,7 +49,7 @@ exF = Fn "x" (Con (Bool True))
 exG = Fn "x" (Var "x")
 exH = Fn "x" (Var "x") `App` (Con (Bool True))
 exI = (Fn "x" (Var "x")) `App` (Fn "y" (Var "y"))
-          
+
 ex230 = Fn "f" (Let "id" (Fn "y" (
                            (If (Con (Bool True))
                                (Var "f")
@@ -59,14 +59,35 @@ ex230 = Fn "f" (Let "id" (Fn "y" (
                                        (Var "x")))) `_seq`
                            (Var "y")))
                     (Var "id" `App` Var "id"))
-
-_seq :: Expr -> Expr -> Expr
-_seq e1 e2 = Con Snd `App` (Con Pair `App` e1 `App` e2)
-
-_pair :: Expr -> Expr -> Expr
-_pair e1 e2 = Con Pair `App` e1 `App` e2
+                    
+ex230' = Fn "f" (Let "id" (Fn "y" (
+                             (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" ((Con Sync `App` (Con Send  `App`
+                                            (_pair (Con Channel `App` Con Unit)
+                                                  ({-Var "y"-}Con Unit)))) `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y")))
+                    (Var "id" `App` Var "id"))
+                    
+ex230'' = Fn "f" (Let "id" (Fn "y" (
+                             (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" ({-(Con Sync `App` (Con Send  `App`-}
+                                            (_pair (Con Channel `App` Con Unit)
+                                                  (Var "y")){-))-} `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y")))
+                    (Var "id" `App` Var "id"))
 
 -- * Testing
+
+example1 = S.fromList [ TyPair (TyVar "a1") (TyVar "a2") :<: TyVar "a3"
+                      , TyInt :<: TyVar "a4"
+                      , Be (S.fromList [BeChan (TyVar "a5")]) :<*: BeUnif "b" 
+                      , Be S.empty :<*: BeUnif "b"                            ]
+                      
+runExample1 = evalState (force undefined example1) (freshIdents, undefined, [])
 
 transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
 transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
@@ -87,6 +108,12 @@ data Expr
     | Rec Ident Ident Expr
     | If  Expr  Expr  Expr
     deriving (Eq, Ord, Show)
+    
+_seq :: Expr -> Expr -> Expr
+_seq e1 e2 = Con Snd `App` (Con Pair `App` e1 `App` e2)
+
+_pair :: Expr -> Expr -> Expr
+_pair e1 e2 = Con Pair `App` e1 `App` e2
     
 data Con
     = Unit
@@ -223,18 +250,22 @@ force env c -- FIXME: env only needed to print error message
          (s', c', _) <- rewrite (idSubst, c, eqc c)
          if atomic c'
             then return (s', c')
-            else error $ "forcing failed: " ++ show c' ++ show env
+            -- else error $ "forcing failed: " ++ show c' ++ "    /    " ++ show env
+            else return (failSubst, failConstr)
+                    where failSubst  = Subst (M.singleton "fail" (TyVar "fail"))
+                                             (M.singleton "fail"        "fail" )
+                          failConstr = S.singleton (TyVar "fail" :<: TyVar "fail")
                 
 eqc :: Constr -> E.Equiv Name
 eqc = S.foldr E.insert E.empty . ftv
 
 atomic :: Constr -> Bool -- FIXME: is this strict/lenient enough?
 atomic = and . map atomic' . S.toList
-    where atomic' (TyVar  _ :<:  TyVar  _) = True
-          atomic' (Be chan  :<*: BeUnif _) | [BeChan _] <- S.toList chan = True
-          atomic' (Be var   :<*: BeUnif _) | [BeVar  _] <- S.toList var  = True -- FIXME: promote?
-          atomic' (BeUnif _ :<*: BeUnif _) = True
-          atomic' _                        = False
+    where atomic'    (TyVar  _ :<:  TyVar  _) = True
+          atomic'    (Be chan  :<*: BeUnif _) | [BeChan _] <- S.toList chan = True
+          atomic' c'@(Be var   :<*: BeUnif _) | [BeVar  _] <- S.toList var  = True -- FIXME: promote?
+          atomic' c'@(BeUnif _ :<*: BeUnif _) = error "corrupted constraint" -- True
+          atomic' _                           = False
 
 rewrite :: (Subst, Constr, E.Equiv Name) -> MyMonad (Subst, Constr, E.Equiv Name)
 rewrite (s, c, eq)
@@ -264,6 +295,8 @@ process f x = process' S.empty x
                                        Just w'' -> process' u (w' `S.union` w'')
 
 decompose :: Constr' -> Maybe Constr
+decompose c'@(BeUnif _ :<*: _   ) = error $ "corrupted constraint: " ++ show c'
+decompose c'@(_        :<*: Be _) = error $ "corrupted constraint: " ++ show c'
 decompose (Be bs :<*: b)  -- \emptyset and \cup + custom promotion rule
     | S.size bs /= 1 = Just $ S.map (\b' -> (Be (S.singleton b') :<*: b)) bs
 --  | S.size bs == 1, Just (BeVar b', _) <- S.minView bs = Just $ S.singleton (BeUnif b' :<*: b)
@@ -280,11 +313,16 @@ decompose (TyList t1 :<: TyList t2)
 decompose (TyChan t1 :<: TyChan t2)
     = Just $ S.fromList [t1 :<: t2, t2 :<: t1]
 decompose (TyCom  t1 b1 :<: TyCom  t2 b2)
-    = Just $ S.fromList [t1 :<: t2, b1 :<*: b2]
+    = Just $ S.fromList [t1 :<: t2, upcast b1 :<*: b2]
 decompose (TyFun t1 b1 t2 :<: TyFun t3 b2 t4)
-    = Just $ S.fromList [t3 :<: t1, b1 :<*: b2, t2 :<: t4]
+    = Just $ S.fromList [t3 :<: t1, upcast b1 :<*: b2, t2 :<: t4]
 decompose _
     = Nothing
+    
+-- FIXME: upcasting/upcasted constraints are very expensive (+400% runtime)
+--        try downcasting in the normal form instead?
+upcast :: Be -> Be
+upcast (BeUnif b) = Be (S.singleton (BeVar b))
 
 process2 :: (Subst, Constr, E.Equiv Name) ->
                 MyMonad (Maybe (Subst, Constr, E.Equiv Name))
@@ -321,16 +359,14 @@ mrml (s, c, equiv) (TyVar a :<: t)
 mrml _             _
     = return Nothing
 
-m :: Name -> Ty -> E.Equiv Name ->
-        MyMonad (Maybe (Subst, E.Equiv Name))
+m :: Name -> Ty -> E.Equiv Name -> MyMonad (Maybe (Subst, E.Equiv Name))
 m a t equiv
     = do let as     = E.equivalenceClass equiv a
          let n      = S.size as
          let (as0, bs0)
                     = shGet t
-         let m      = length as0
-         ass        <- replicateM n (replicateM m              fresh)
-         bss        <- replicateM n (replicateM (length (bs0)) fresh)
+         ass        <- replicateM n (replicateM (length as0) fresh)
+         bss        <- replicateM n (replicateM (length bs0) fresh)
          let r      = Subst (M.fromList
                                 (zipWith3 (\a as bs -> (a, shPut t (as, bs)))
                                           (S.toList as) ass bss))
@@ -654,8 +690,7 @@ inst :: TyScheme -> MyMonad (Subst, Ty, Be, Constr)
 inst (Forall as bs c t)
     = do as' <- replicateM (length as) fresh
          bs' <- replicateM (length bs) fresh
-         let r = Subst (M.fromList (zipWith (\a a' -> (a, TyVar a')) as as'))
-                       (M.fromList (zip                              bs bs'))
+         let r = Subst (M.fromList (zip as as')) (M.fromList (zip bs bs'))
          return (idSubst, r $@ t, Be S.empty, r $@ c)
 
 -- * Generalization
@@ -777,7 +812,7 @@ instance (Fresh a, Fresh b, Fresh c) => Fresh (a, b, c) where
                
 instance Fresh Ty where
     fresh = do a <- fresh
-               return (TyVar a)
+               return (TyVar ("a" ++ a))
                
 instance Fresh TyScheme where
     fresh = do t <- fresh
@@ -785,7 +820,7 @@ instance Fresh TyScheme where
 
 instance Fresh Be where
     fresh = do b <- fresh
-               return (BeUnif b)
+               return (BeUnif ("b" ++ b))
 
 freshIdents = map (\n -> "_{" ++ show n ++ "}") [1..]
 
@@ -874,26 +909,26 @@ s2 $. s1 = (s2 $@ s1) $+ s2
 
 class Substitute t where
     ($@) :: Subst -> t -> t
-    
-instance Substitute Ident where
+
+instance Substitute Ident where -- FIXME: dangerous: only sustitutes behaviour variables
     Subst _ bv $@ u | Just u' <- M.lookup u bv = u'
                     | otherwise                = u
 
 instance Substitute Subst where -- FIXME: dangerous to expose to the outside world...
     subst $@ (Subst tv bv)
         = Subst (M.map (subst $@) tv) (M.map (subst $@) bv)
-     
+
 instance Substitute Ty where -- FIXME: incomplete
-    Subst tv _ $@ t@(TyVar a)    | Just t' <- M.lookup a tv = t'
-                                 | otherwise                = t
-    _          $@ TyUnit         = TyUnit
-    _          $@ TyInt          = TyInt
-    _          $@ TyBool         = TyBool
-    subst      $@ (TyPair t1 t2) = TyPair (subst $@ t1) (subst $@ t2)
-    subst      $@ (TyList t)     = TyList (subst $@ t)
-    subst      $@ (TyFun t b t') = TyFun (subst $@ t) (subst $@ b) (subst $@ t')
-    subst      $@ (TyChan t)     = TyChan (subst $@ t)
-    subst      $@ (TyCom t b)    = TyCom (subst $@ t) (subst $@ b)
+    Subst tv _ $@ t@(TyVar a)      | Just t' <- M.lookup a tv = t'
+                                   | otherwise                = t
+    _          $@ TyUnit           = TyUnit
+    _          $@ TyInt            = TyInt
+    _          $@ TyBool           = TyBool
+    subst      $@ (TyPair t1   t2) = TyPair (subst $@ t1) (subst $@ t2)
+    subst      $@ (TyList t)       = TyList (subst $@ t )
+    subst      $@ (TyFun  t  b t') = TyFun  (subst $@ t ) (subst $@ b ) (subst $@ t')
+    subst      $@ (TyChan t)       = TyChan (subst $@ t )
+    subst      $@ (TyCom  t  b   ) = TyCom  (subst $@ t ) (subst $@ b )
     
 instance Substitute Be' where
     Subst _ bv $@ (BeVar b)  | Just b' <- M.lookup b bv = BeVar b'
