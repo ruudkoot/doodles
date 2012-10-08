@@ -23,77 +23,6 @@ import qualified Data.Tree.Zipper       as Z               -- == rose-zipper-0.2
 
 import qualified Equiv                  as E               -- => union-find-0.2
 
--- | Main
-
-main = do let expr = ex230
-          let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
-          let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
-          putStrLn $ "== MESSAGES ============================================="
-          putStr   $ unlines msgs
-          putStrLn $ "== RESULTS =============================================="
-          putStrLn $ "Type        : " ++ show t
-          putStrLn $ "Behaviour   : " ++ show b
-          putStrLn $ "Constraints : " ++ show c
-          putStrLn $ "Substitution: " ++ show s
-          putStrLn $ "== INFERENCE TREE ======================================="
-          putStrLn $ T.drawTree (fmap show (Z.toTree tree))
-
--- * Examples
-          
-exA = Let "id" (Fn "x" (Var "x")) (Var "id")
-exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Con (Bool True))
-exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id") -- DOES NOT TYPECHECK
-exD = Con (Bool True)
-exE = Con (Int 42)
-exF = Fn "x" (Con (Bool True))
-exG = Fn "x" (Var "x")
-exH = Fn "x" (Var "x") `App` (Con (Bool True))
-exI = (Fn "x" (Var "x")) `App` (Fn "y" (Var "y"))
-
-ex230 = Fn "f" (Let "id" (Fn "y" (
-                           (If (Con (Bool True))
-                               (Var "f")
-                               (Fn "x" ((Con Sync `App` (Con Send `App`
-                                            _pair (Con Channel `App` Con Unit)
-                                                  (Var "y"))) `_seq`
-                                       (Var "x")))) `_seq`
-                           (Var "y")))
-                    (Var "id" `App` Var "id"))
-                    
-ex230' = Fn "f" (Let "id" (Fn "y" (
-                             (If (Con (Bool True))
-                               (Var "f")
-                               (Fn "x" ((Con Sync `App` (Con Send  `App`
-                                            (_pair (Con Channel `App` Con Unit)
-                                                  ({-Var "y"-}Con Unit)))) `_seq`
-                                       (Var "x")))) `_seq`
-                           (Var "y")))
-                    (Var "id" `App` Var "id"))
-                    
-ex230'' = Fn "f" (Let "id" (Fn "y" (
-                             (If (Con (Bool True))
-                               (Var "f")
-                               (Fn "x" ({-(Con Sync `App` (Con Send  `App`-}
-                                            (_pair (Con Channel `App` Con Unit)
-                                                  (Var "y")){-))-} `_seq`
-                                       (Var "x")))) `_seq`
-                           (Var "y")))
-                    (Var "id" `App` Var "id"))
-
--- * Testing
-
-example1 = S.fromList [ TyPair (TyVar "a1") (TyVar "a2") :<: TyVar "a3"
-                      , TyInt :<: TyVar "a4"
-                      , Be (S.fromList [BeChan (TyVar "a5")]) :<*: BeUnif "b" 
-                      , Be S.empty :<*: BeUnif "b"                            ]
-                      
-runExample1 = evalState (force undefined example1) (freshIdents, undefined, [])
-
-transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
-transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
-
-someConstraints = S.fromList [TyVar "_{10}" :<: TyVar "_{3}",TyVar "_{11}" :<: TyVar "_{13}",TyVar "_{12}" :<: TyVar "_{10}",TyVar "_{3}" :<: TyVar "_{11}",BeUnif "_{14}" :<*: BeUnif "_{15}",BeUnif "_{2}" :<*: BeUnif "_{6}",BeUnif "_{4}" :<*: BeUnif "_{14}"]
-
 -- | Syntax
 
 type Name  = String
@@ -961,3 +890,97 @@ restrict = foldr M.delete
 
 unionMap :: (Ord a, Ord b) => (a -> S.Set b) -> S.Set a -> S.Set b
 unionMap f = S.unions . S.toList . S.map f
+
+-- | Main
+
+main = do let expr = ex230
+          let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
+          let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
+          putStrLn $ "== MESSAGES ============================================="
+          putStr   $ unlines msgs
+          putStrLn $ "== RESULTS =============================================="
+          putStrLn $ "Type        : " ++ show t
+          putStrLn $ "Behaviour   : " ++ show b
+          putStrLn $ "Constraints : " ++ show c
+          putStrLn $ "Substitution: " ++ show s
+          putStrLn $ "== INFERENCE TREE ======================================="
+          putStrLn $ T.drawTree (fmap show (Z.toTree tree))
+
+-- * Examples
+          
+exA = Let "id" (Fn "x" (Var "x")) (Var "id")
+exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Con (Bool True))
+exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id") -- DOES NOT TYPECHECK
+exD = Con (Bool True)
+exE = Con (Int 42)
+exF = Fn "x" (Con (Bool True))
+exG = Fn "x" (Var "x")
+exH = Fn "x" (Var "x") `App` (Con (Bool True))
+exI = (Fn "x" (Var "x")) `App` (Fn "y" (Var "y"))
+
+ex230 = Fn "f" (Let "id" (Fn "y" (
+                           (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" ((Con Sync `App` (Con Send `App`
+                                            _pair (Con Channel `App` Con Unit)
+                                                  (Var "y"))) `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y")))
+                    (Var "id" `App` Var "id"))
+                    
+ex230' = Fn "f" (Let "id" (Fn "y" (
+                             (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" ((Con Sync `App` (Con Send  `App`
+                                            (_pair (Con Channel `App` Con Unit)
+                                                  ({-Var "y"-}Con Unit)))) `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y")))
+                    (Var "id" `App` Var "id"))
+                    
+ex230'' = Fn "f" (Let "id" (Fn "y" (
+                             (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" ({-(Con Sync `App` (Con Send  `App`-}
+                                            (_pair (Con Channel `App` Con Unit)
+                                                  (Var "y")){-))-} `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y")))
+                    (Var "id" `App` Var "id"))
+
+-- * Testing
+
+example1 = evalState (force undefined c) (freshIdents, undefined, [])
+    where c = S.fromList [ TyPair (TyVar "a1") (TyVar "a2") :<: TyVar "a3"
+                         , TyInt :<: TyVar "a4"
+                         , Be (S.fromList [BeChan (TyVar "a5")]) :<*: BeUnif "b" 
+                         , Be S.empty :<*: BeUnif "b"                            ]
+
+example2a = evalState (force undefined c) (freshIdents, undefined, [])
+    where c = S.fromList [ TyCom (TyPair (TyVar "a11") (TyVar "a12")) (BeUnif "b1") :<: TyVar "a0" ]
+    
+example2b = evalState (force undefined c) (freshIdents, undefined, [])
+    where c = S.fromList [ TyCom (TyPair (TyVar "a") (TyVar "a")) (BeUnif "b") :<: TyVar "a" ]
+
+example2c = evalState (force undefined c) (freshIdents, undefined, [])
+    where c = S.fromList [ TyCom (TyVar "a1") (BeUnif "b1") :<: TyVar "a0"
+                         , TyVar "a0" :<: TyVar "a1"                       ]
+
+example3 = shPut (TyCom (TyPair (TyVar "[]") (TyVar "[]")) (BeUnif "[]")) (["t1", "t2"], [BeUnif "b1"])
+
+remark222 = evalState (force undefined c) (freshIdents, undefined, [])
+    where c = S.fromList [ TyFun TyInt (BeUnif "b") TyInt :<: TyVar "a"
+                         , Be (S.singleton (BeChan (TyVar "a"))) :<*: BeUnif "b" ]
+
+example4 = let Identity x = evalState (reduce M.empty c t (BeUnif "q")) (freshIdents, undefined, []) in x
+    where c = S.fromList [ TyVar "a1" :<: TyVar "a2" ]
+          t = TyFun (TyVar "a1") (BeUnif "b") (TyVar "a2")
+
+example5 = let Identity x = evalState (reduce M.empty c t (BeUnif "q")) (freshIdents, undefined, []) in x
+    where c = S.fromList [ TyVar "a2" :<: TyVar "a1" ]
+          t = TyFun (TyVar "a1") (BeUnif "b") (TyVar "a2")
+
+transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.empty)]
+transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
+
+someConstraints = S.fromList [TyVar "_{10}" :<: TyVar "_{3}",TyVar "_{11}" :<: TyVar "_{13}",TyVar "_{12}" :<: TyVar "_{10}",TyVar "_{3}" :<: TyVar "_{11}",BeUnif "_{14}" :<*: BeUnif "_{15}",BeUnif "_{2}" :<*: BeUnif "_{6}",BeUnif "_{4}" :<*: BeUnif "_{14}"]
