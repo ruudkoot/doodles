@@ -85,7 +85,7 @@ type Constr = S.Set Constr'
 
 data Constr'
     = Ty :<:  Ty
-    | Be :<*: Be
+    | Be :<*: Be        -- FIXME: S.Set Be' :<*: Name
     deriving (Eq, Ord, Show)
     
 data TyScheme = Forall [Ident] [Ident] Constr Ty deriving (Eq, Ord, Show)
@@ -179,12 +179,12 @@ force env c -- FIXME: env only needed to print error message
          (s', c', _) <- rewrite (idSubst, c, eqc c)
          if atomic c'
             then return (s', c')
-            -- else error $ "forcing failed: " ++ show c' ++ "    /    " ++ show env
-            else return (failSubst, failConstr)
+            else error $ "forcing failed: " ++ show c' ++ "    /    " ++ show env
+            --else return (failSubst, failConstr)
                     where failSubst  = Subst (M.singleton "fail" (TyVar "fail"))
                                              (M.singleton "fail"        "fail" )
                           failConstr = S.singleton (TyVar "fail" :<: TyVar "fail")
-                
+
 eqc :: Constr -> E.Equiv Name
 eqc = S.foldr E.insert E.empty . ftv
 
@@ -294,8 +294,8 @@ m a t equiv
          let n      = S.size as
          let (as0, bs0)
                     = shGet t
-         ass        <- replicateM n (replicateM (length as0) fresh)
-         bss        <- replicateM n (replicateM (length bs0) fresh)
+         ass        <- replicateM n (replicateM (length as0) fresh' )
+         bss        <- replicateM n (replicateM (length bs0) fresh'')
          let r      = Subst (M.fromList
                                 (zipWith3 (\a as bs -> (a, shPut t (as, bs)))
                                           (S.toList as) ass bss))
@@ -308,6 +308,15 @@ m a t equiv
          if S.null (as `S.intersection` fv t)
             then return (Just (r, equiv'))
             else return Nothing
+
+
+fresh' :: MyMonad Name
+fresh' = do a <- fresh
+            return ("\\dot\\alpha" ++ a)
+            
+fresh'' :: MyMonad Be
+fresh'' = do b <- fresh
+             return (BeUnif ("\\dot\\beta" ++ b))
 
 -- FIXME: i don't think the order matters, as long as we do it consistently
 shGet :: Ty -> ([Name], [Be])
@@ -618,9 +627,13 @@ mkSimple' (Be bs) | S.null bs = fresh
 inst :: TyScheme -> MyMonad (Subst, Ty, Be, Constr)
 inst (Forall as bs c t)
     = do as' <- replicateM (length as) fresh
-         bs' <- replicateM (length bs) fresh
+         bs' <- replicateM (length bs) fresh'''
          let r = Subst (M.fromList (zip as as')) (M.fromList (zip bs bs'))
          return (idSubst, r $@ t, Be S.empty, r $@ c)
+         
+fresh''' :: MyMonad Name
+fresh''' = do b <- fresh
+              return ("\\beta" ++ b)
 
 -- * Generalization
          
@@ -741,7 +754,7 @@ instance (Fresh a, Fresh b, Fresh c) => Fresh (a, b, c) where
                
 instance Fresh Ty where
     fresh = do a <- fresh
-               return (TyVar ("a" ++ a))
+               return (TyVar ("\\alpha" ++ a))
                
 instance Fresh TyScheme where
     fresh = do t <- fresh
@@ -749,7 +762,7 @@ instance Fresh TyScheme where
 
 instance Fresh Be where
     fresh = do b <- fresh
-               return (BeUnif ("b" ++ b))
+               return (BeUnif ("\\beta" ++ b))
 
 freshIdents = map (\n -> "_{" ++ show n ++ "}") [1..]
 
@@ -847,7 +860,7 @@ instance Substitute Subst where -- FIXME: dangerous to expose to the outside wor
     subst $@ (Subst tv bv)
         = Subst (M.map (subst $@) tv) (M.map (subst $@) bv)
 
-instance Substitute Ty where -- FIXME: incomplete
+instance Substitute Ty where
     Subst tv _ $@ t@(TyVar a)      | Just t' <- M.lookup a tv = t'
                                    | otherwise                = t
     _          $@ TyUnit           = TyUnit
@@ -883,6 +896,157 @@ instance Substitute TyScheme where
 instance Substitute TyEnv where
     subst $@ env = M.map (subst $@) env
     
+instance Substitute Rule where
+    subst $@ (W c c' s)
+        = W (subst $@ c) (subst $@ c') s
+    subst $@ (W' env e t b c s)
+        = W' (subst $@ env) e (subst $@ t) (subst $@ b) (subst $@ c) s
+        
+instance Substitute a => Substitute (T.Tree a) where
+    subst $@ t = fmap (subst $@) t
+    
+-- | Pretty Printing
+
+filterTC = S.filter f
+    where f c'@(_ :<: _) = True
+          f c'@(Be bs :<*: _) | hasChan bs = True
+                              | otherwise  = False
+          hasChan = not . S.null . S.filter g
+          g (BeChan _) = True
+          g _          = False
+
+class LaTeX a where
+    latex :: a -> String
+
+command cmd arg = "\\" ++ cmd ++ "{" ++ arg ++ "}"
+
+space   = "\\ "
+align   = "& "
+newline = "\\\\"
+
+mathbf  = command "mathbf"
+
+latexSet :: LaTeX a => S.Set a -> String
+latexSet s = "\\left\\{" ++ L.intercalate ", " (map latex (S.toList s)) ++ "\\right\\}"
+
+instance LaTeX Name where
+    latex name = name
+
+instance (LaTeX a, LaTeX b) => LaTeX (a, b) where
+    latex (x, y) = "\\left(" ++ latex x ++ ", " ++ latex y ++ "\\right)"
+
+instance (LaTeX k, LaTeX v) => LaTeX (M.Map k v) where    
+    latex m | M.null m  = "\\epsilon"
+            | otherwise = ("\\left[\\begin{split}"++) . (++"\\end{split}\\right]") . L.intercalate newline . map (\(k, v) -> latex k ++ align ++ "\\mapsto " ++ latex v) . M.toList $ m
+
+instance LaTeX a => LaTeX (T.Tree a) where
+    latex (T.Node x cs)
+        = "\\frac{\\displaystyle " ++ concatMap latex cs
+            ++ "}{\\displaystyle " ++           latex x  ++ "}"
+
+instance LaTeX Expr where
+    latex (Con c)
+        = latex c
+    latex (Var x) 
+        = latex x
+    latex (Fn x e)
+        = "\\left(\\lambda " ++ latex x ++ "." ++ space ++ latex e ++ "\\right)"
+    latex (App e1 e2) 
+        = "\\left(" ++ latex e1 ++ space ++ latex e2 ++ "\\right)"
+    latex (Let x e1 e2) 
+        =  mathbf "let" ++ space ++ latex x  ++ space
+        ++ mathbf "="   ++ space ++ latex e1 ++ space
+        ++ mathbf "in"  ++ space ++ latex e2
+    latex (Rec f x e) 
+        = "\\left(" ++ mathbf "rec" ++ space ++ latex f ++ space ++ latex x
+          ++ "." ++ space ++ latex e ++ "\\right)"
+    latex (If e0 e1 e2)
+        =  mathbf "if"   ++ space ++ latex e0 ++ space
+        ++ mathbf "then" ++ space ++ latex e1 ++ space
+        ++ mathbf "else" ++ space ++ latex e2
+    
+instance LaTeX Con where
+    latex Unit         = mathbf "()"
+    latex (Bool True ) = mathbf "True"
+    latex (Bool False) = mathbf "False"
+    latex (Int  n    ) = mathbf (show n)
+    latex Plus         = mathbf "+"
+    latex Times        = mathbf "*"
+    latex Eq           = mathbf "=="
+    latex Pair         = mathbf "(,)"
+    latex Fst          = mathbf "fst"
+    latex Snd          = mathbf "snd"
+    latex Nil          = mathbf "[]"
+    latex Cons         = mathbf "(:)"
+    latex Hd           = mathbf "hd"
+    latex Tl           = mathbf "tl"
+    latex IsNil        = mathbf "isnil"
+    latex Send         = mathbf "send"
+    latex Receive      = mathbf "recv"
+    latex Sync         = mathbf "sync"
+    latex Channel      = mathbf "channel"
+    latex Fork         = mathbf "fork"
+
+instance LaTeX Ty where
+    latex (TyVar a)        = latex a
+    latex TyUnit           = mathbf "()"
+    latex TyInt            = mathbf "Int"
+    latex TyBool           = mathbf "Bool"
+    latex (TyPair t1   t2) = "\\left(" ++ latex t1 ++ " \\times "
+                                       ++ latex t2 ++ "\\right)"
+    latex (TyList t)       = "\\left[" ++ latex t  ++ "\\right]"
+    latex (TyFun  t1 b t2) = "\\left(" ++ latex t1 ++ "\\xrightarrow{" ++ latex b ++ "}"
+                                       ++ latex t2 ++ "\\right)"
+    latex (TyChan t      ) = mathbf "Chan" ++ space ++ latex t
+    latex (TyCom  t  b   ) = latex t ++ space ++ mathbf "Com" ++ space ++ latex b
+    
+instance LaTeX TyScheme where
+    latex (Forall as bs cs t) 
+        = "\\forall " ++ concatMap latex (as ++ bs)
+          ++ " . " ++ latex cs
+          ++ " \\Rightarrow " ++ latex t
+
+instance LaTeX Be' where
+    latex (BeVar b)  = latex b
+    latex (BeChan t) = mathbf "Chan" ++ space ++ latex t
+
+instance LaTeX Be where
+    latex (BeUnif u) = latex u
+    latex (Be bs)    = latexSet bs
+
+instance LaTeX Constr' where
+    latex (t1 :<:  t2) = latex t1 ++ "\\subseteq " ++ latex t2
+    latex (b1 :<*: b2) = latex b1 ++ "\\subseteq " ++ latex b2
+
+instance LaTeX Constr where
+    latex c = latexSet c
+    
+instance LaTeX Subst where
+    latex (Subst a b) = latex a ++ latex b
+    
+instance LaTeX Rule where
+    latex (W c c' s)
+        = "\\begin{split}"                  ++ align ++ latex c  ++ newline
+                           ++ " \\leadsto " ++ align ++ latex c' ++ "\\end{split}"
+    latex (W' env e t b c s)
+        =  "\\begin{split}" ++ align ++                latex env ++ newline
+                            ++ align ++ " \\vdash " ++ latex e   ++ newline
+                            ++ align ++ " : "       ++ latex t   ++ newline
+                            ++ align ++ " \\& "     ++ latex c
+        ++ "\\end{split}"
+
+preamble  =  "\\documentclass{article}\n"
+          ++ "\\usepackage{amsfonts}\n"
+          ++ "\\usepackage{amsmath}\n"
+          ++ "\\usepackage{amssymb}\n"
+          ++ "\\usepackage[paperwidth=250cm,paperheight=90cm]{geometry}\n"
+          ++ "\\usepackage[cm]{fullpage}\n"
+          ++ "\\usepackage{stmaryrd}\n"
+          ++ "\\begin{document}\n"
+
+postamble =  "\\end{gather}\n"
+          ++ "\\end{document}"
+
 -- | Miscellaneous
 
 restrict :: Ord k => M.Map k a -> [k] -> M.Map k a
@@ -891,11 +1055,14 @@ restrict = foldr M.delete
 unionMap :: (Ord a, Ord b) => (a -> S.Set b) -> S.Set a -> S.Set b
 unionMap f = S.unions . S.toList . S.map f
 
+showSet x = "{" ++ L.intercalate "," x ++ "}"
+
 -- | Main
 
-main = do let expr = ex230
+main = do let expr = ex230'''
           let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
           let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
+          {-
           putStrLn $ "== MESSAGES ============================================="
           putStr   $ unlines msgs
           putStrLn $ "== RESULTS =============================================="
@@ -905,6 +1072,18 @@ main = do let expr = ex230
           putStrLn $ "Substitution: " ++ show s
           putStrLn $ "== INFERENCE TREE ======================================="
           putStrLn $ T.drawTree (fmap show (Z.toTree tree))
+          putStrLn $ "== LATEX ================================================"
+          -}
+          putStrLn $ preamble
+          putStrLn $ "\\begin{description}"
+          putStrLn $ "\\item[Substitution] \\[" ++ latex s ++ "\\]"
+          putStrLn $ "\\item[Type]         \\[" ++ latex t ++ "\\]"
+          putStrLn $ "\\item[Behaviour]    \\[" ++ latex b ++ "\\]"
+          putStrLn $ "\\item[Constraints]  \\[" ++ latex c ++ "\\]"
+          putStrLn $ "\\end{description}"
+          putStrLn $ "\\begin{gather}"
+          putStrLn $ latex (s $@ (Z.toTree tree))
+          putStrLn $ postamble
 
 -- * Examples
           
@@ -947,6 +1126,16 @@ ex230'' = Fn "f" (Let "id" (Fn "y" (
                                        (Var "x")))) `_seq`
                            (Var "y")))
                     (Var "id" `App` Var "id"))
+                    
+ex230''' = Fn "f" (Let "id" (Fn "y" (
+                           (If (Con (Bool True))
+                               (Var "f")
+                               (Fn "x" ((Con Sync `App` (Con Send `App`
+                                            _pair (Con Channel `App` Con Unit)
+                                                  (Var "y"))) `_seq`
+                                       (Var "x")))) `_seq`
+                           (Var "y")))
+                    (Var "id"))
 
 -- * Testing
 
