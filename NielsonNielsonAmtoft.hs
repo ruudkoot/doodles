@@ -19,7 +19,6 @@ import qualified Data.Map               as M
 import           Data.Maybe
 import qualified Data.Set               as S
 import qualified Data.Tree              as T
-import qualified Data.Tree.Zipper       as Z               -- == rose-zipper-0.2
 
 import qualified Equiv                  as E               -- => union-find-0.2
 
@@ -100,90 +99,83 @@ type MyMonad r = State ([Name], InferenceTree Rule, [String]) r
 
 -- * Inference
 
-infer :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
+infer :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr, T.Tree Rule)
 infer env e
-    = do down
-         (s1, t1, b1, c1) <- infer' env e
-         (s2,         c2) <- force env c1
+    = do (s1, t1, b1, c1, tr1) <- infer' env e
+         (s2,         c2     ) <- force env c1
          Identity (c3, t3, b3) <- reduce (s2 $@ s1 $@ env) c2 (s2 $@ t1) (s2 $@ b1)
-         up
-         putRule (W c1 c2 s2)
-         return (s2 $. s1, t3, b3, c3)
+         return ( s2 $. s1, t3, b3, c3
+                , T.Node (W c1 c2 t3 c3) [tr1] )
 
-infer' :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr)
+infer' :: TyEnv -> Expr -> MyMonad (Subst, Ty, Be, Constr, T.Tree Rule)
 infer' env e@(Con c)
     = do (s, t, b, c) <- inst (typeOf c)
          t' <- mkSimple t
-         putRule (W' env e t' b c s)
-         return (s, t', b, c)
+         return (s, t', b, c, T.Node (W' env e t' b c) [])
 infer' env e@(Var x)
-    | Just ts <- M.lookup x env = do (s, t, b, c) <- inst ts
-                                     putRule (W' env e t b c s)
-                                     return (s, t, b, c)
-    | otherwise                 = error $ "variable '" ++ x ++ "' not in scope " ++ show env
+    | Just ts <- M.lookup x env
+        = do (s, t, b, c) <- inst ts
+             return (s, t, b, c, T.Node (W' env e t b c) [])
+    | otherwise
+        = error $ "variable '" ++ x ++ "' not in scope " ++ show env
 infer' env e@(Fn x e0)
-    = do down
-         a <- fresh
-         (s0, t0, b0, c0) <- infer (M.insert x (injTS a) env) e0
+    = do a <- fresh
+         (s0, t0, b0, c0, tr0) <- infer (M.insert x (injTS a) env) e0
          b <- fresh
-         up
-         putRule (W' env e (TyFun (s0 $@ a) b t0) (Be S.empty) (c0 `S.union` S.fromList [b0 :<*: b]) s0)
-         return ( s0, TyFun (s0 $@ a) b t0, Be S.empty
-                , c0 `S.union` S.fromList [b0 :<*: b] )
+         let t' = TyFun (s0 $@ a) b t0
+         let c' = c0 `S.union` S.fromList [b0 :<*: b]
+         return ( s0, t', Be S.empty, c'
+                , T.Node (W' env e t' (Be S.empty) c') [tr0] )
 infer' env e@(App e1 e2)
-    = do down
-         (s1, t1, b1, c1) <- infer env e1
-         (s2, t2, b2, c2) <- infer (s1 $@ env) e2
+    = do (s1, t1, b1, c1, tr1) <- infer env e1
+         (s2, t2, b2, c2, tr2) <- infer (s1 $@ env) e2
          (a, b) <- fresh
-         up
-         putRule (W' env e a (s2 $@ b1) (s2 $@ c1 `S.union` c2 `S.union` S.fromList [s2 $@ t1 :<: TyFun t2 b a]) (s2 $. s1))
-         return ( s2 $. s1, a, s2 $@ b1 `joinBe` b2 `joinBe` injBe b
-                , s2 $@ c1 `S.union` c2
-                           `S.union` S.fromList [s2 $@ t1 :<: TyFun t2 b a] )
+         let b' = s2 $@ b1 `joinBe` b2 `joinBe` injBe b
+         let c' = s2 $@ c1 `S.union` c2
+                           `S.union` S.fromList [s2 $@ t1 :<: TyFun t2 b a]
+         return ( s2 $. s1, a, b', c'
+                , T.Node (W' env e a b' c') [tr1, tr2] )
 infer' env e@(Let x e1 e2)
-    = do down
-         (s1, t1, b1, c1) <- infer env e1
+    = do (s1, t1, b1, c1, tr1) <- infer env e1
          let ts1 = gen (s1 $@ env) b1 c1 t1
-         (s2, t2, b2, c2) <- infer (M.insert x ts1 (s1 $@ env)) e2
-         up
-         putRule (W' env e t2 (s2 $@ b1) (s2 $@ c2 `S.union` c1) (s2 $. s1))
-         return ( s2 $. s1, t2, s2 $@ b1 `joinBe` b2, s2 $@ c2 `S.union` c1 )
+         (s2, t2, b2, c2, tr2) <- infer (M.insert x ts1 (s1 $@ env)) e2
+         let b' = s2 $@ b1 `joinBe` b2
+         let c' = s2 $@ c2 `S.union` c1
+         return ( s2 $. s1, t2, b', c'
+                , T.Node (W' env e t2 b' c') [tr1, tr2] )
 infer' env e@(Rec f x e0)
     | f == x = error "binders not distinct"
     | otherwise
-        = do down
-             (a1, b, a2) <- fresh
-             (s0, t0, b0, c0) <- infer (M.insert x (injTS a1)
-                                            (M.insert f (injTS (TyFun a1 b a2)) env)) e0
-             up
-             putRule (W' env e (s0 $@ TyFun a1 b a2) (Be S.empty) (c0 `S.union` S.fromList [b0 :<*: (s0 $@ b), t0 :<: (s0 $@ a2)]) s0)
-             return ( s0, s0 $@ TyFun a1 b a2, Be S.empty
-                    , c0 `S.union` S.fromList [b0 :<*: (s0 $@ b), t0 :<: (s0 $@ a2)] )
+        = do (a1, b, a2) <- fresh
+             (s0, t0, b0, c0, tr0) <- infer (M.insert x (injTS a1)
+                                                (M.insert f (injTS (TyFun a1 b a2))
+                                                             env)) e0
+             let t' = s0 $@ TyFun a1 b a2
+             let c' = c0 `S.union` S.fromList [b0 :<*: (s0 $@ b), t0 :<: (s0 $@ a2)]
+             return ( s0, t', Be S.empty, c'
+                    , T.Node (W' env e t' (Be S.empty) c') [tr0] )
 infer' env e@(If e0 e1 e2)
-    = do down
-         (s0, t0, b0, c0) <- infer env e0
-         (s1, t1, b1, c1) <- infer (s0 $@ env) e1
-         (s2, t2, b2, c2) <- infer (s1 $@ s0 $@ env) e2
+    = do (s0, t0, b0, c0, tr0) <- infer              env  e0
+         (s1, t1, b1, c1, tr1) <- infer (      s0 $@ env) e1
+         (s2, t2, b2, c2, tr2) <- infer (s1 $@ s0 $@ env) e2
          a <- fresh
-         up
-         putRule (W' env e a (s2 $@ s1 $@ b0 `joinBe` (s2 $@ b1) `joinBe` b2) (s2 $@ s1 $@ c0 `S.union` (s2 $@ c1) `S.union` c2 `S.union` S.fromList [s2 $@ s1 $@ t0 :<: TyBool, s2 $@ t1 :<: a, t2 :<: a]) (s2 $. s1 $. s0))
-         return ( s2 $. s1 $. s0, a, s2 $@ s1 $@ b0 `joinBe` (s2 $@ b1) `joinBe` b2
-                , s2 $@ s1 $@ c0 `S.union` (s2 $@ c1) `S.union` c2 `S.union`
-                    S.fromList [s2 $@ s1 $@ t0 :<: TyBool, s2 $@ t1 :<: a, t2 :<: a] )
+         let b' = s2 $@ s1 $@ b0 `joinBe` (s2 $@ b1) `joinBe` b2
+         let c' = s2 $@ s1 $@ c0 
+                  `S.union` (s2 $@ c1)
+                  `S.union` c2
+                  `S.union` S.fromList [ s2 $@ s1 $@ t0 :<: TyBool
+                                       , s2 $@ t1 :<: a, t2 :<: a  ]
+         return ( s2 $. s1 $. s0, a, b', c'
+                , T.Node (W' env e a b' c') [tr0, tr1, tr2])
 
 -- * Forcing (decompostion and matching)
 
 force :: TyEnv -> Constr -> MyMonad (Subst, Constr)
 force env c -- FIXME: env only needed to print error message
-    = do message "|Forcing|"
-         (s', c', _) <- rewrite (idSubst, c, eqc c)
+    = do (s', c', _) <- rewrite (idSubst, c, eqc c)
          if atomic c'
             then return (s', c')
             else error $ "forcing failed: " ++ show c' ++ "    /    " ++ show env
-            --else return (failSubst, failConstr)
-                    where failSubst  = Subst (M.singleton "fail" (TyVar "fail"))
-                                             (M.singleton "fail"        "fail" )
-                          failConstr = S.singleton (TyVar "fail" :<: TyVar "fail")
 
 eqc :: Constr -> E.Equiv Name
 eqc = S.foldr E.insert E.empty . ftv
@@ -199,19 +191,10 @@ atomic = and . map atomic' . S.toList
 rewrite :: (Subst, Constr, E.Equiv Name) -> MyMonad (Subst, Constr, E.Equiv Name)
 rewrite (s, c, eq)
     = do dc <- process decompose c
-         when (c /= dc) $
-            do message $ "Decompose: " ++ show c
-               message $ "        ~> " ++ show dc
-         message $ "Match    : " ++ show dc
-         message $ "           w/ " ++ show s
-         message $ "         & w/ " ++ show eq
          maybeMatch <- process2 (s, dc, eq)
          case maybeMatch of
-            Nothing             -> return (s, dc, eq)
-            Just (s', dc', eq') -> do message $ "        ~> " ++ show dc'
-                                      message $ "           w/ " ++ show s'
-                                      message $ "         & w/ " ++ show eq'
-                                      rewrite (s', dc', eq')
+            Nothing             -> return  (s , dc , eq )
+            Just (s', dc', eq') -> rewrite (s', dc', eq')
          
 
 process :: (Ord a, Show a) => (a -> Maybe (S.Set a)) -> S.Set a -> MyMonad (S.Set a)
@@ -487,7 +470,7 @@ reachabilityHelper (Be bs :<*: BeUnif g2) m
         = M.insertWith S.union g2 (S.singleton g1) m
     | S.size bs == 1, Just (BeChan _, _) <- S.minView bs
         = m
-reachabilityHelper x                    _ = error $ show x
+reachabilityHelper x                    _ = error $ "reachabilityHelper: " ++ show x
 
 -- * Monotonicity
 
@@ -645,23 +628,22 @@ gen env b c t
                          then fvtbc `S.difference` fvenvbdc
                          else error "downclose shrunk"
                     else error "biclose shrunk"
-          as  = abs `S.intersection` (ftv t `S.union` ftv env `S.union` ftv b)
-          bs  = abs `S.intersection` (fbv t `S.union` fbv env `S.union` fbv b)
+          as  = abs `S.intersection` (ftv t `S.union` ftv env `S.union` ftv b `S.union` ftv c)
+          bs  = abs `S.intersection` (fbv t `S.union` fbv env `S.union` fbv b `S.union` fbv c)
           c0  = S.filter f c
             where f (g1 :<: g2)  = not (S.null ((fv g1 `S.union` fv g2) `S.intersection` abs))
                   f (g1 :<*: g2) = not (S.null ((fv g1 `S.union` fv g2) `S.intersection` abs))
-       in Forall (S.toList as) (S.toList bs) c0 t
-
+       in if as `S.union` bs == abs then Forall (S.toList as) (S.toList bs) c0 t
+                                    else error $ "quantifiers lost: " ++ show abs ++ " -> " ++ show as ++ " + " ++ show bs
 -- * Closures
 
-{-upClose, -}
-downClose, biClose :: S.Set Name -> Constr -> S.Set Name
-{-
+upClose, downClose, biClose :: S.Set Name -> Constr -> S.Set Name
+
 upClose x c
-    = let f0 = S.foldr closeHelper M.empty c
+    = let f0 = S.foldr closeHelperUp M.empty c
           fc = transitiveClosure (reflexiveClosure f0)
-       in S.filter (\k -> not (S.null (fromMaybe (error "upClose") (M.lookup k fc) `S.intersection` x))) (M.keysSet fc)
--}
+       in S.foldr (\v r -> r `S.union` (M.findWithDefault (S.singleton v) v fc)) S.empty x
+
 downClose x c
     = let f0 = S.foldr closeHelper M.empty c
           fc = transitiveClosure (reflexiveClosure f0)
@@ -671,6 +653,9 @@ biClose x c
     = let f0 = S.foldr closeHelper M.empty c
           fc = transitiveClosure (symmetricClosure (reflexiveClosure f0))
        in S.foldr (\v r -> r `S.union` (M.findWithDefault (S.singleton v) v fc)) S.empty x
+
+closeHelperUp (g1 :<:  g2) r = S.foldr (\x -> M.insertWith S.union x (fv g2)) r (fv g1)
+closeHelperUp (g1 :<*: g2) r = S.foldr (\x -> M.insertWith S.union x (fv g2)) r (fv g1)
        
 closeHelper (g1 :<:  g2) r = S.foldr (\x -> M.insertWith S.union x (fv g1)) r (fv g2)
 closeHelper (g1 :<*: g2) r = S.foldr (\x -> M.insertWith S.union x (fv g1)) r (fv g2)
@@ -713,24 +698,18 @@ message m
                
 -- | Inference tree (typing derivation)
 
-type InferenceTree r = Z.TreePos Z.Full r
+type InferenceTree r = ()
 
-data Rule = W Constr Constr Subst
-          | W' TyEnv Expr Ty Be Constr Subst
+data Rule = W Constr Constr Ty Constr
+          | W' TyEnv Expr Ty Be Constr
           deriving Show
+
+{-
+instance Show Rule where
+    show (W  _ _      ) = "W"
+    show (W' _ _ _ _ _) = "W'"
+-}
              
-down, up :: MyMonad ()
-down = modifySnd (Z.insert emptyInferenceTree . Z.children)
-up   = modifySnd (fromJust . Z.parent)
-
-putRule :: Rule -> MyMonad ()
-putRule = modifySnd . Z.setLabel
-
-modifySnd :: (InferenceTree Rule -> InferenceTree Rule) -> MyMonad ()
-modifySnd f = modify (\(a, b, c) -> (a, f b, c))
-
-emptyInferenceTree = T.Node (error "derivation not specified") []
-
 -- | Fresh identifiers
 
 class Fresh a where 
@@ -897,10 +876,10 @@ instance Substitute TyEnv where
     subst $@ env = M.map (subst $@) env
     
 instance Substitute Rule where
-    subst $@ (W c c' s)
-        = W (subst $@ c) (subst $@ c') s
-    subst $@ (W' env e t b c s)
-        = W' (subst $@ env) e (subst $@ t) (subst $@ b) (subst $@ c) s
+    subst $@ (W c c' t c'')
+        = W (subst $@ c) (subst $@ c') (subst $@ t) (subst $@ c'')
+    subst $@ (W' env e t b c)
+        = W' (subst $@ env) e (subst $@ t) (subst $@ b) (subst $@ c)
         
 instance Substitute a => Substitute (T.Tree a) where
     subst $@ t = fmap (subst $@) t
@@ -920,6 +899,9 @@ class LaTeX a where
 
 command cmd arg = "\\" ++ cmd ++ "{" ++ arg ++ "}"
 
+maybeColor Nothing      arg = arg
+maybeColor (Just color) arg = "{\\color{" ++ color ++ "}" ++ arg ++ "}"
+
 space   = "\\ "
 align   = "& "
 newline = "\\\\"
@@ -934,10 +916,15 @@ instance LaTeX Name where
 
 instance (LaTeX a, LaTeX b) => LaTeX (a, b) where
     latex (x, y) = "\\left(" ++ latex x ++ ", " ++ latex y ++ "\\right)"
-
+{-
 instance (LaTeX k, LaTeX v) => LaTeX (M.Map k v) where    
     latex m | M.null m  = "\\epsilon"
             | otherwise = ("\\left[\\begin{split}"++) . (++"\\end{split}\\right]") . L.intercalate newline . map (\(k, v) -> latex k ++ align ++ "\\mapsto " ++ latex v) . M.toList $ m
+-}
+
+instance LaTeX TyEnv where
+    latex env | M.null env = "\\epsilon "
+              | otherwise  = ("\\left[\\begin{split}"++) . (++"\\end{split}\\right]") . L.intercalate newline . map (\(k, v) -> latex k ++ align ++ "\\mapsto " ++ maybeColor (if wf v then Nothing else Just "red") (latex v)) . M.toList $ env
 
 instance LaTeX a => LaTeX (T.Tree a) where
     latex (T.Node x cs)
@@ -1008,7 +995,7 @@ instance LaTeX TyScheme where
 
 instance LaTeX Be' where
     latex (BeVar b)  = latex b
-    latex (BeChan t) = mathbf "Chan" ++ space ++ latex t
+    latex (BeChan t) = mathbf "CHAN" ++ space ++ latex t
 
 instance LaTeX Be where
     latex (BeUnif u) = latex u
@@ -1022,13 +1009,20 @@ instance LaTeX Constr where
     latex c = latexSet c
     
 instance LaTeX Subst where
-    latex (Subst a b) = latex a ++ latex b
+    latex (Subst a b) = "\\left[\\begin{split}" ++ latex' a ++ "; " ++ latex' b ++ "\\end{split}\\right]"
+        where latex' m | M.null m  = "\\epsilon"
+                       | otherwise = L.intercalate newline . map (\(k, v) -> latex k ++ align ++ "\\mapsto " ++ latex v) . M.toList $ m
     
 instance LaTeX Rule where
-    latex (W c c' s)
-        = "\\begin{split}"                  ++ align ++ latex c  ++ newline
-                           ++ " \\leadsto " ++ align ++ latex c' ++ "\\end{split}"
-    latex (W' env e t b c s)
+    latex (W c c' t c'')
+        | c == c'' = "\\Downarrow "
+        | otherwise
+            =  "\\begin{split}"             ++ align  ++ latex c   ++ newline
+            ++ " \\leadsto_{\\mathcal{F}} " ++ align  ++ latex c'  ++ newline
+            ++ " \\leadsto_{\\mathcal{R}} " ++ align  ++ latex t
+                                            ++ "\\& " ++ latex c''
+            ++ "\\end{split}"
+    latex (W' env e t b c)
         =  "\\begin{split}" ++ align ++                latex env ++ newline
                             ++ align ++ " \\vdash " ++ latex e   ++ newline
                             ++ align ++ " : "       ++ latex t   ++ newline
@@ -1039,9 +1033,10 @@ preamble  =  "\\documentclass{article}\n"
           ++ "\\usepackage{amsfonts}\n"
           ++ "\\usepackage{amsmath}\n"
           ++ "\\usepackage{amssymb}\n"
-          ++ "\\usepackage[paperwidth=250cm,paperheight=90cm]{geometry}\n"
+          ++ "\\usepackage[paperwidth=250cm,paperheight=250cm]{geometry}\n"
           ++ "\\usepackage[cm]{fullpage}\n"
           ++ "\\usepackage{stmaryrd}\n"
+          ++ "\\usepackage{xcolor}\n"
           ++ "\\begin{document}\n"
 
 postamble =  "\\end{gather}\n"
@@ -1059,37 +1054,40 @@ showSet x = "{" ++ L.intercalate "," x ++ "}"
 
 -- | Main
 
-main = do let expr = ex230'''
-          let init = (freshIdents, Z.fromTree emptyInferenceTree, [])
-          let ((s, t, b, c), (_, tree, msgs)) = runState (infer M.empty expr) init
-          {-
-          putStrLn $ "== MESSAGES ============================================="
-          putStr   $ unlines msgs
-          putStrLn $ "== RESULTS =============================================="
-          putStrLn $ "Type        : " ++ show t
-          putStrLn $ "Behaviour   : " ++ show b
-          putStrLn $ "Constraints : " ++ show c
-          putStrLn $ "Substitution: " ++ show s
-          putStrLn $ "== INFERENCE TREE ======================================="
-          putStrLn $ T.drawTree (fmap show (Z.toTree tree))
-          putStrLn $ "== LATEX ================================================"
-          -}
-          putStrLn $ preamble
-          putStrLn $ "\\begin{description}"
-          putStrLn $ "\\item[Substitution] \\[" ++ latex s ++ "\\]"
-          putStrLn $ "\\item[Type]         \\[" ++ latex t ++ "\\]"
-          putStrLn $ "\\item[Behaviour]    \\[" ++ latex b ++ "\\]"
-          putStrLn $ "\\item[Constraints]  \\[" ++ latex c ++ "\\]"
-          putStrLn $ "\\end{description}"
-          putStrLn $ "\\begin{gather}"
-          putStrLn $ latex (s $@ (Z.toTree tree))
-          putStrLn $ postamble
+main
+    = do let expr = ex230
+         let init = (freshIdents, undefined, [])
+         let ((s, t, b, c, tr), (_, _, msgs)) = runState (infer M.empty expr) init
+         {-
+         putStrLn $ "== MESSAGES ============================================="
+         putStr   $ unlines msgs
+         putStrLn $ "== RESULTS =============================================="
+         putStrLn $ "Type        : " ++ show t
+         putStrLn $ "Behaviour   : " ++ show b
+         putStrLn $ "Constraints : " ++ show c
+         putStrLn $ "Substitution: " ++ show s
+         putStrLn $ "== INFERENCE TREE ======================================="
+         putStrLn $ T.drawTree (fmap show tr)
+         putStrLn $ "== LATEX ================================================"
+         -}
+         --{-
+         putStrLn $ preamble
+         putStrLn $ "\\begin{description}"
+         putStrLn $ "\\item[Substitution] \\[" ++ latex s ++ "\\]"
+         putStrLn $ "\\item[Type]         \\[" ++ latex t ++ "\\]"
+         putStrLn $ "\\item[Behaviour]    \\[" ++ latex b ++ "\\]"
+         putStrLn $ "\\item[Constraints]  \\[" ++ latex c ++ "\\]"
+         putStrLn $ "\\end{description}"
+         putStrLn $ "\\begin{gather}"
+         putStrLn $ latex (s $@ tr)
+         putStrLn $ postamble
+         ---}
 
 -- * Examples
           
 exA = Let "id" (Fn "x" (Var "x")) (Var "id")
 exB = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Con (Bool True))
-exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id") -- DOES NOT TYPECHECK
+exC = Let "id" (Fn "x" (Var "x")) (Var "id" `App` Var "id")
 exD = Con (Bool True)
 exE = Con (Int 42)
 exF = Fn "x" (Con (Bool True))
@@ -1173,3 +1171,25 @@ transGraph1 = M.fromList [("a", S.singleton "b"), ("b", S.singleton "c"), ("c", 
 transGraph2 = M.fromList [("a",S.singleton "b"), ("b", S.singleton "c"), ("c", S.singleton "d"), ("d", S.fromList ["b", "e"]), ("e", S.singleton "f"), ("f", S.empty)]
 
 someConstraints = S.fromList [TyVar "_{10}" :<: TyVar "_{3}",TyVar "_{11}" :<: TyVar "_{13}",TyVar "_{12}" :<: TyVar "_{10}",TyVar "_{3}" :<: TyVar "_{11}",BeUnif "_{14}" :<*: BeUnif "_{15}",BeUnif "_{2}" :<*: BeUnif "_{6}",BeUnif "_{4}" :<*: BeUnif "_{14}"]
+
+-- | Declarative Type System
+
+class WellFormed t where
+    wf :: t -> Bool
+
+instance WellFormed Constr' where
+    wf (_ :<:  TyVar  _) = True
+    wf (_ :<*: BeUnif _) = True
+    wf _                 = False
+
+instance WellFormed Constr where
+    wf = S.foldr ((&&) . wf) True
+
+instance WellFormed TyScheme where
+    wf (Forall as bs c0 t0)
+        = let abs = S.fromList (as ++ bs)
+           in wf c0 && notRedundant abs c0 && upClose abs c0 == abs
+            where notRedundant abs = S.foldr (\c' -> (&&) (not (S.null (abs `S.intersection` fv c')))) True
+
+instance WellFormed Ty where
+    wf _ = True
