@@ -140,3 +140,19 @@ erase (lam σ t) = lam σ (erase t)
 data Infer (Γ : Cxt) : Raw -> Set where
   ok  : (τ : Type)(t : Term Γ τ) -> Infer Γ (erase t)
   bad : {e : Raw} -> Infer Γ e
+
+infer : (Γ : Cxt)(e : Raw) -> Infer Γ e
+infer Γ (var n)               with Γ ! n
+infer Γ (var .(length Γ + n)) | outside n  = bad
+infer Γ (var .(index x))      | inside σ x = ok σ (var x)
+infer Γ (e₁ $ e₂)                   with infer Γ e₁
+infer Γ (e₁ $ e₂)                   | bad     = bad
+infer Γ (.(erase t₁) $ e₂)          | ok ı t₁ = bad
+infer Γ (.(erase t₁) $ e₂)          | ok (σ ⟶ τ) t₁ with infer Γ e₂
+infer Γ (.(erase t₁) $ e₂)          | ok (σ ⟶ τ) t₁ | bad = bad
+infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ with σ ≟ σ'
+infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok .σ t₂ | yes = ok τ (t₁ $ t₂)
+infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ | no  = bad
+infer Γ (lam σ e) with infer (σ :: Γ) e
+infer Γ (lam σ .(erase t)) | ok τ t = ok (σ ⟶ τ) (lam σ t)
+infer Γ (lam σ e)          | bad    = bad
