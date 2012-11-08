@@ -130,3 +130,55 @@ foldr f z = fold [ const z || uncurry f ]
 
 plus : NAT -> NAT -> NAT
 plus n m = fold [ const m || S ] n
+
+-- Universes for overloading
+
+open import Data.List renaming (_∷_ to _::_)
+
+data Type : Set where
+  bool : Type
+  nat  : Type
+  list : Type -> Type
+  pair : Type -> Type -> Type
+
+E1 : Type -> Set
+E1 nat        = Nat
+E1 bool       = Bool
+E1 (list a)   = List (E1 a)
+E1 (pair a b) = E1 a × E1 b
+
+infix 30 _==_
+_==_ : {a : Type} -> E1 a -> E1 a -> Bool
+
+_==_ {nat} zero    zero    = true
+_==_ {nat} (suc _) zero    = false
+_==_ {nat} zero    (suc _) = false
+_==_ {nat} (suc n) (suc m) = n == m
+
+_==_ {bool} true  x = x
+_==_ {bool} false x = not x
+
+_==_ {list a} []        [] = true
+_==_ {list a} (_ :: _)  []        = false
+_==_ {list a} []        (_ :: _ ) = false
+_==_ {list a} (x :: xs) (y :: ys) = x == y and xs == ys
+
+_==_ {pair a b} (x₁ , y₁) (x₂ , y₂) = x₁ == x₂ and y₁ == y₂
+
+example₁ : isTrue ((2 + 2) == 4)
+example₁ = _               -- needed additional parenthesis
+
+example₂ : isTrue (not ((true :: false :: []) == (true :: true :: [])))
+example₂ = _               -- needed additional parenthesis
+
+-- 3.3  Exercises
+
+-- Exercise 3.1. Natural numbers
+
+data Compare : Nat -> Nat -> Set where
+  less : forall {n} k -> Compare n (n + suc k)
+  more : forall {n} k -> Compare (n + suc k) n
+  same : forall {n} -> Compare n n
+
+
+
