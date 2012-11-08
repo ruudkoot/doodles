@@ -40,7 +40,7 @@ andIntro : (a b : Bool) -> isTrue a -> isTrue b -> isTrue (a and b)
 andIntro true  _ _  p = p
 andIntro false _ () _
 
-open import Data.Nat hiding (fold) renaming (ℕ to Nat)
+open import Data.Nat hiding (fold; compare) renaming (ℕ to Nat)
 
 nonZero : Nat -> Bool
 nonZero zero    = false
@@ -173,12 +173,73 @@ example₂ = _               -- needed additional parenthesis
 
 -- 3.3  Exercises
 
--- Exercise 3.1. Natural numbers
+-- Exercise 3.4. An XML universe
 
-data Compare : Nat -> Nat -> Set where
-  less : forall {n} k -> Compare n (n + suc k)
-  more : forall {n} k -> Compare (n + suc k) n
-  same : forall {n} -> Compare n n
+open import Data.String renaming (_++_ to _+++_)
 
+infixr 30 _:all:_
+data All {A : Set}(P : A -> Set) : List A -> Set where
+  all[]   : All P []
+  _:all:_ : forall {x xs} -> P x -> All P xs -> All P (x :: xs)
 
+Tag = String
 
+mutual
+  data Schema : Set where
+    tag : Tag -> List Child -> Schema
+
+  data Child : Set where
+    text : Child
+    elem : Nat -> Nat -> Schema -> Child
+
+data BList (A : Set) : Nat -> Set where
+  []   : forall {n} -> BList A n
+  _::_ : forall {n} -> A -> BList A n -> BList A (suc n)
+
+data Cons (A B : Set) : Set where
+  _::_ : A -> B -> Cons A B
+
+FList : Set -> Nat -> Nat -> Set
+FList A zero    m       = BList A m
+FList A (suc n) zero    = False
+FList A (suc n) (suc m) = Cons A (FList A n m)
+
+mapBList : {A B : Set}{n : Nat} -> (A -> B) -> BList A n -> BList B n
+mapBList f []        = []
+mapBList f (y :: y') = f y :: mapBList f y'
+
+mapFList : {A B : Set}{n m : Nat} -> (A -> B) -> FList A n m -> FList B n m
+mapFList {n = zero}           f []        = []
+mapFList {n = zero}           f (y :: y') = f y :: mapBList f y'
+mapFList {n = suc n} {zero}   f ()
+mapFList {n = suc n} {suc n'} f (y :: y') = f y :: mapFList f y'
+
+concatBList : {n : Nat} -> BList String n -> String
+concatBList []        = ""
+concatBList (y :: y') = y +++ concatBList y' 
+
+concatFList : {n m : Nat} -> FList String n m -> String
+concatFList {zero}           xs        = concatBList xs
+concatFList {suc n} {zero}   ()
+concatFList {suc n} {suc n'} (y :: y') = y +++ concatFList y'
+
+mutual
+  data XML : Schema -> Set where
+    element : forall {kids}(t : Tag) -> All Element kids -> XML (tag t kids)
+
+  Element : Child -> Set
+  Element text         = String
+  Element (elem n m s) = FList (XML s) n m
+
+mutual
+  printXML : {s : Schema} -> XML s -> String
+  printXML {tag y y'} (element .y y0)
+    = "<" +++ y +++ ">" +++ printChildren y0 +++ "</" +++ y +++ ">"
+
+  printChildren : {kids : List Child} -> All Element kids -> String
+  printChildren                   all[]
+    = ""
+  printChildren {text       :: _} (x :all: xs)
+    = x +++ printChildren xs
+  printChildren {elem n m s :: _} (x :all: xs)
+    = concatFList (mapFList printXML x) +++ printChildren xs

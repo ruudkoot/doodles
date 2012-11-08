@@ -10,7 +10,7 @@ module Views where
 
 -- Natural number parity
 
-open import Data.Nat hiding (_≟_) renaming (ℕ to Nat)
+open import Data.Nat hiding (_≟_; compare) renaming (ℕ to Nat)
 
 data Parity : Nat -> Set where
   even : (k : Nat) -> Parity (k * 2)
@@ -102,57 +102,178 @@ _!_ : {A : Set}(xs : List A)(n : Nat) -> Lookup xs n
 
 -- A type checker for λ-calculus
 
-infixr 30 _⟶_
-data Type : Set where
-  ı   : Type
-  _⟶_ : Type -> Type -> Type
+module TypeChecker where
 
-data Equal? : Type -> Type -> Set where
-  yes : forall {τ} -> Equal? τ τ
-  no  : forall {σ τ} -> Equal? σ τ
+  infixr 30 _⟶_
+  data Type : Set where
+    ı   : Type
+    _⟶_ : Type -> Type -> Type
 
-_≟_ : (σ τ : Type) -> Equal? σ τ
-ı         ≟ ı       = yes
-ı         ≟ (_ ⟶ _) = no
-(_ ⟶ _)   ≟ ı       = no
-(σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) with σ₁ ≟ σ₂ | τ₁ ≟ τ₂
-(σ  ⟶ τ ) ≟ (.σ ⟶ .τ) | yes | yes = yes
-(σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) | _   | _   = no
+  data Equal? : Type -> Type -> Set where
+    yes : forall {τ} -> Equal? τ τ
+    no  : forall {σ τ} -> Equal? σ τ
 
-infixl 80 _$_
-data Raw : Set where
-  var : Nat -> Raw
-  _$_ : Raw -> Raw -> Raw
-  lam : Type -> Raw -> Raw
+  _≟_ : (σ τ : Type) -> Equal? σ τ
+  ı         ≟ ı       = yes
+  ı         ≟ (_ ⟶ _) = no
+  (_ ⟶ _)   ≟ ı       = no
+  (σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) with σ₁ ≟ σ₂ | τ₁ ≟ τ₂
+  (σ  ⟶ τ ) ≟ (.σ ⟶ .τ) | yes | yes = yes
+  (σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) | _   | _   = no
 
-Cxt = List Type
+  infixl 80 _$_
+  data Raw : Set where
+    var : Nat -> Raw
+    _$_ : Raw -> Raw -> Raw
+    lam : Type -> Raw -> Raw
 
-data Term (Γ : Cxt) : Type -> Set where
-  var : forall {τ} -> τ ∈ Γ -> Term Γ τ
-  _$_ : forall {σ τ} -> Term Γ (σ ⟶ τ) -> Term Γ σ -> Term Γ τ
-  lam : forall σ  {τ} -> Term (σ :: Γ) τ -> Term Γ (σ ⟶ τ)
+  Cxt = List Type
 
-erase : forall {Γ τ} -> Term Γ τ -> Raw
-erase (var x)   = var (index x)
-erase (t $ u)   = erase t $ erase u
-erase (lam σ t) = lam σ (erase t)
+  data Term (Γ : Cxt) : Type -> Set where
+    var : forall {τ} -> τ ∈ Γ -> Term Γ τ
+    _$_ : forall {σ τ} -> Term Γ (σ ⟶ τ) -> Term Γ σ -> Term Γ τ
+    lam : forall σ {τ} -> Term (σ :: Γ) τ -> Term Γ (σ ⟶ τ)
 
-data Infer (Γ : Cxt) : Raw -> Set where
-  ok  : (τ : Type)(t : Term Γ τ) -> Infer Γ (erase t)
-  bad : {e : Raw} -> Infer Γ e
+  erase : forall {Γ τ} -> Term Γ τ -> Raw
+  erase (var x)   = var (index x)
+  erase (t $ u)   = erase t $ erase u
+  erase (lam σ t) = lam σ (erase t)
 
-infer : (Γ : Cxt)(e : Raw) -> Infer Γ e
-infer Γ (var n)               with Γ ! n
-infer Γ (var .(length Γ + n)) | outside n  = bad
-infer Γ (var .(index x))      | inside σ x = ok σ (var x)
-infer Γ (e₁ $ e₂)                   with infer Γ e₁
-infer Γ (e₁ $ e₂)                   | bad     = bad
-infer Γ (.(erase t₁) $ e₂)          | ok ı t₁ = bad
-infer Γ (.(erase t₁) $ e₂)          | ok (σ ⟶ τ) t₁ with infer Γ e₂
-infer Γ (.(erase t₁) $ e₂)          | ok (σ ⟶ τ) t₁ | bad = bad
-infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ with σ ≟ σ'
-infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok .σ t₂ | yes = ok τ (t₁ $ t₂)
-infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ | no  = bad
-infer Γ (lam σ e) with infer (σ :: Γ) e
-infer Γ (lam σ .(erase t)) | ok τ t = ok (σ ⟶ τ) (lam σ t)
-infer Γ (lam σ e)          | bad    = bad
+  data Infer (Γ : Cxt) : Raw -> Set where
+    ok  : (τ : Type)(t : Term Γ τ) -> Infer Γ (erase t)
+    bad : {e : Raw} -> Infer Γ e
+
+  infer : (Γ : Cxt)(e : Raw) -> Infer Γ e
+  infer Γ (var n)               with Γ ! n
+  infer Γ (var .(length Γ + n)) | outside n  = bad
+  infer Γ (var .(index x))      | inside σ x = ok σ (var x)
+  infer Γ (e₁ $ e₂)                   with infer Γ e₁
+  infer Γ (e₁ $ e₂)                   | bad     = bad
+  infer Γ (.(erase t₁) $ e₂)          | ok ı t₁ = bad
+  infer Γ (.(erase t₁) $ e₂)          | ok (σ ⟶ τ) t₁ with infer Γ e₂
+  infer Γ (.(erase t₁) $ e₂)          | ok (σ ⟶ τ) t₁ | bad = bad
+  infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ with σ ≟ σ'
+  infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok .σ t₂ | yes = ok τ (t₁ $ t₂)
+  infer Γ (.(erase t₁) $ .(erase t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ | no  = bad
+  infer Γ (lam σ e)          with infer (σ :: Γ) e
+  infer Γ (lam σ .(erase t)) | ok τ t = ok (σ ⟶ τ) (lam σ t)
+  infer Γ (lam σ e)          | bad    = bad
+
+-- 3.3  Exercises
+
+-- Exercise 3.1. Natural numbers
+
+data Compare : Nat -> Nat -> Set where
+  less : forall {n} k -> Compare n (n + suc k)
+  more : forall {n} k -> Compare (n + suc k) n
+  same : forall {n} -> Compare n n
+
+compare : (n m : Nat) -> Compare n m
+compare zero     zero   = same
+compare zero    (suc m) = less m
+compare (suc n) zero    = more n
+compare (suc n) (suc m) with compare n m
+compare (suc n) (suc .(n + suc k)) | less k = less k
+compare (suc .(m + suc k)) (suc m) | more k = more k
+compare (suc .m) (suc m)           | same   = same
+
+example₃ = compare 10 15
+example₄ = compare 15 10
+example₅ = compare  4  4
+
+difference : Nat -> Nat -> Nat
+difference n m with compare n m
+difference n .(n + suc k) | less k = suc k
+difference .(m + suc k) m | more k = suc k
+difference .m m           | same   = 0
+
+example₆ = difference 10 15
+example₇ = difference 15 10
+example₈ = difference  4  4
+
+-- Exercise 3.2. Type checking λ-calculus
+
+module Exercise where
+
+  open TypeChecker using (Type; ı; _⟶_; Cxt; Raw; var; _$_; lam; Term; erase)
+  
+  data _≠_ : Type -> Type -> Set where
+    ı≠⟶ : forall {σ τ} -> ı ≠ (σ ⟶ τ)
+    ⟶≠ı : forall {σ τ} -> (σ ⟶ τ) ≠ ı
+    ⟶≠⟶-left  : forall {σ₁ σ₂ τ₁ τ₂} -> σ₁ ≠ σ₂ -> (σ₁ ⟶ τ₁) ≠ (σ₂ ⟶ τ₂)
+    ⟶≠⟶-right : forall {σ₁ σ₂ τ₁ τ₂} -> τ₁ ≠ τ₂ -> (σ₁ ⟶ τ₁) ≠ (σ₂ ⟶ τ₂)
+
+  data Equal? : Type -> Type -> Set where
+    yes : forall {τ} -> Equal? τ τ
+    no  : forall {σ τ} -> σ ≠ τ -> Equal? σ τ
+
+  _≟_ : (σ τ : Type) -> Equal? σ τ
+  ı         ≟ ı       = yes
+  ı         ≟ (_ ⟶ _) = no ı≠⟶
+  (_ ⟶ _)   ≟ ı       = no ⟶≠ı
+  (σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) with σ₁ ≟ σ₂ | τ₁ ≟ τ₂
+  (σ  ⟶ τ ) ≟ (.σ ⟶ .τ) | yes    | yes    = yes
+  (σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) | no prf | _      = no (⟶≠⟶-left  prf)
+  (σ₁ ⟶ τ₁) ≟ (σ₂ ⟶ τ₂) | _      | no prf = no (⟶≠⟶-right prf)
+
+  data BadTerm (Γ : Cxt) : Set where
+    var  : Nat -> BadTerm Γ
+    _$₁_ : BadTerm Γ -> Raw -> BadTerm Γ
+    _$₂_ : forall {τ} -> Term Γ τ -> Raw -> BadTerm Γ
+    lam  : forall σ -> BadTerm (σ :: Γ) -> BadTerm Γ
+
+  eraseBad : {Γ : Cxt} -> BadTerm Γ -> Raw
+  eraseBad {Γ} (var n) = var (length Γ + n)
+  eraseBad (s $₁ t)    = eraseBad s $ t
+  eraseBad (s $₂ t)    = erase s $ t
+  eraseBad (lam σ t)   = lam σ (eraseBad t)
+
+  data Infer (Γ : Cxt) : Raw -> Set where
+    ok  : (τ : Type)(t : Term Γ τ) -> Infer Γ (erase t)
+    bad : (b : BadTerm Γ) -> Infer Γ (eraseBad b)
+
+  infer : (Γ : Cxt)(e : Raw) -> Infer Γ e
+  infer Γ (var n)               with Γ ! n
+  infer Γ (var .(length Γ + n)) | outside n  = bad (var n)
+  infer Γ (var .(index x))      | inside σ x = ok σ (var x)
+  infer Γ (e₁ $ e₂)                         with infer Γ e₁
+  infer Γ (.(eraseBad t₁) $ e₂)             | bad t₁  = bad (t₁ $₁ e₂)
+  infer Γ (.(erase    t₁) $ e₂)             | ok ı t₁ = bad (t₁ $₂ e₂)
+  infer Γ (.(erase    t₁) $ e₂)             | ok (σ ⟶ τ) t₁ with infer Γ e₂
+  infer Γ (.(erase    t₁) $ .(eraseBad t₂)) | ok (σ ⟶ τ) t₁ | bad t₂ = bad (t₁ $₂ eraseBad t₂)
+  infer Γ (.(erase    t₁) $ .(erase    t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ with σ ≟ σ'
+  infer Γ (.(erase    t₁) $ .(erase    t₂)) | ok (σ ⟶ τ) t₁ | ok .σ t₂ | yes = ok τ (t₁ $ t₂)
+  infer Γ (.(erase    t₁) $ .(erase    t₂)) | ok (σ ⟶ τ) t₁ | ok σ' t₂ | no prf = bad (t₁ $₂ erase t₂)
+  infer Γ (lam σ e)             with infer (σ :: Γ) e
+  infer Γ (lam σ .(erase    t)) | ok τ t = ok (σ ⟶ τ) (lam σ t)
+  infer Γ (lam σ .(eraseBad t)) | bad t  = bad (lam σ t)
+
+-- Exercise 3.3. Properties of list functions
+
+lemma-All-∈ : forall {A x xs}{P : A -> Set} -> All P xs -> x ∈ xs -> P x
+lemma-All-∈ all[]        ()
+lemma-All-∈ (x :all: _ ) hd      = x
+lemma-All-∈ (_ :all: xs) (tl ys) = lemma-All-∈ xs ys
+
+lem-filter-sound : {A : Set}(p : A -> Bool)(xs : List A) -> All (satisfies p) (filter p xs)
+lem-filter-sound p [] = all[]
+lem-filter-sound p (x :: xs) with inspect (p x)
+lem-filter-sound p (x :: xs) | it y prf with p x | prf
+lem-filter-sound p (x :: xs) | it true  prf | .true  | refl
+  = trueIsTrue prf :all: lem-filter-sound p xs
+lem-filter-sound p (x :: xs) | it false prf | .false | refl
+  = lem-filter-sound p xs
+
+{-
+lem-filter-complete : {A : Set}(p : A -> Bool)(x : A){xs : List A} ->
+                      x ∈ xs -> satisfies p x -> x ∈ filter p xs
+lem-filter-complete p x hd px with p x
+lem-filter-complete p x hd px | true  = hd
+lem-filter-complete p x hd () | false
+lem-filter-complete p x (tl y') px with inspect (p x)
+lem-filter-complete p x (tl y1) px | it y prf with p x | prf
+lem-filter-complete p x (tl y1) tt | it true prf | .true | refl with lem-filter-complete p x y1 (trueIsTrue prf)
+... | b = {!!}
+lem-filter-complete p x (tl y1) () | it false prf | .false | refl
+-}
+
