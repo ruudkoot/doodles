@@ -130,7 +130,37 @@ predT : Nat -> Nat
 predT n = natrec zero (λ x y → x) n
 
 _-T_ : Nat -> Nat -> Nat
-n -T m = natrec ? ? ?
+n -T m = natrec {!!} {!!} {!!}
+
+_<T_ : Nat -> Nat -> Bool
+x <T y = {!!}
+
+_≤T_ : Nat -> Nat -> Bool
+x ≤T y = {!!}
+
+-- 2.6  Parametrised Types
+
+data List (A : Set) : Set where
+  [] : List A
+  _::_ : A -> List A -> List A
+
+map : {A B : Set} -> (A -> B) -> List A -> List B
+map f [] = []
+map f (x :: xs) = f x :: map f xs
+
+filter : {A : Set} -> (A -> Bool) -> List A -> List A
+filter _ [] = []
+filter p (x :: xs) with p x
+... | true = x :: xs
+... | false = xs
+
+foldl : {A B : Set} -> (B -> A -> B) -> B -> List A -> B
+foldl _⊕_ e []        = e
+foldl _⊕_ e (x :: xs) = foldl _⊕_ (e ⊕ x) xs
+
+listrec : {A B : Set} -> (A -> B -> B) -> B -> List A -> B
+listrec _⊕_ e [] = e
+listrec _⊕_ e (x :: xs) = x ⊕ listrec _⊕_ e xs
 
 -- A  More about the Agda System
 
