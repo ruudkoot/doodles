@@ -244,6 +244,7 @@ mutual
   printChildren {elem n m s :: _} (x :all: xs)
     = concatFList (mapFList printXML x) +++ printChildren xs
 
-myXML : XML ?
-myXML = element "html" ((element "head" all[]) :all: (element "body" ((element "p" all[]) :all: (element "p" all[]) :all: all[])))
- 
+myXML : XML (tag "html" ((elem (suc zero) (suc zero) (tag "head" [])) :: []))
+myXML = element "html" (((element "head" all[]) :: []) :all: (all[]))
+
+myDoc = printXML myXML
