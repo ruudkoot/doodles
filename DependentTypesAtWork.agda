@@ -123,7 +123,14 @@ x ||T y = if x then true else if y then true else false
 _&&T_ : Bool -> Bool -> Bool
 x &&T y = if x then if y then true else false else false
 
+_=>T_ : Bool -> Bool -> Bool
+x =>T y = if x then if y then true else false else true
 
+predT : Nat -> Nat
+predT n = natrec zero (λ x y → x) n
+
+_-T_ : Nat -> Nat -> Nat
+n -T m = natrec ? ? ?
 
 -- A  More about the Agda System
 
