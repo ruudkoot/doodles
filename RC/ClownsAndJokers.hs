@@ -295,7 +295,7 @@ instance (PresEq p, PresEq q) => PresEq (p :*: q) where
   pres eq (p1 :*: q1) (p2 :*: q2) = pres eq p1 p2 && pres eq q1 q2
   
 -- 7.3  Hunting for a Needle in a Stack
-
+{-
 data Leaf p x = VL x | CL (p Zero)
 
 instance Functor ((:|:) a) where
@@ -305,4 +305,4 @@ instance Functor ((:|:) a) where
 leftOrLeaf :: Diss  p p'' => Star p x -> (Star p x, p'' Zero (Star p x)) :|: Leaf p x
 leftOrLeaf (V x)  = R (VL x)
 leftOrLeaf (C pt) = fmap CL (divide pt)
-
+-}
