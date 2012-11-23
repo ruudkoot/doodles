@@ -362,8 +362,75 @@ type 'b monoid = ('b -> 'b -> 'b) * 'b;
 (** 3.1  Categories **)
 
 (* 3.1.1  Diagram chasing *)
-
 (* 3.1.2  Subcategorties, isomorphisms, monics and epis *)
+
+(** 3.2  Examples **)
+
+(* 3.2.1  Sets and finite sets *)
+(* 3.2.2  Graphs *)
+(* 3.2.3  Finite categories *)
+(* 3.2.4  Relations and partial orders *)
+(* 3.2.5  Partial orders as categories *)
+(* 3.2.6  Deductive systems *)
+(* 3.2.7  Universal algebra: terms, algebras and equations *)
+(* 3.2.8  Sets with structure-preserving arrows *)
+
+(** 3.3  Categories computationally **)
+
+datatype ('o,'a)Cat =
+    cat of ('a->'o)*('a->'o)*('o->'a)*('a*'a->'a)
+    
+(** 3.4  Categories as values **)
+
+exception non_composable_pair
+
+(* 3.4.1  The category of finite sets *)
+
+exception not_implemented
+fun seteq(a,b) = raise not_implemented     (* FIXME: implement *)
+
+datatype 'a Set_Arrow =
+    set_arrow of ('a Set)*('a->'a)*('a Set)
+   
+fun set_s(set_arrow(a,_,_)) = a
+fun set_t(set_arrow(_,_,b)) = b
+fun set_ident(a) = set_arrow(a,fn x => x,a)
+fun set_comp(set_arrow(c,g,d),set_arrow(a,f,b)) =
+    if seteq(b,c) then set_arrow(a,fn x => g(f(x)),d)
+                  else raise non_composable_pair
+
+val FinSet = cat(set_s,set_t,set_ident,set_comp)
+
+(* 3.4.2  Terms and term substitutions: the category T_Omega^Fin *)
+
+type symbol = string
+type element = string
+
+datatype opr = opr of symbol * (element Set)
+
+datatype Term = var of element
+              | apply of opr * (element -> Term)
+
+datatype Substitution =
+    subst of (element Set)*(element -> Term)*(element Set)
+
+fun subst_apply(t)(S as subst(a,f,b)) =
+    case t of var(x)       => f(x)
+            | apply(psi,s) => apply(psi,fn x => subst_apply(s x)(S))
+
+fun subst_compose(S as subst(c,g,d),subst(a,f,b)) = 
+    if seteq(b,c)
+        then subst(a,fn x => subst_apply(f x)(S),d)
+        else raise non_composable_pair
+
+fun subst_ident(a) = subst(a,fn x => var(x),a)
+fun subst_s(subst(a,_,_)) = a
+fun subst_t(subst(_,_,b)) = b
+
+val FinKleisli =
+    cat(subst_s,subst_t,subst_ident,subst_compose)
+
+(* 3.4.3  A finite category *)
 
 
 
