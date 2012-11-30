@@ -383,6 +383,7 @@ datatype ('o,'a)Cat =
 (** 3.4  Categories as values **)
 
 exception non_composable_pair
+exception non_composable
 
 (* 3.4.1  The category of finite sets *)
 
@@ -432,5 +433,30 @@ val FinKleisli =
 
 (* 3.4.3  A finite category *)
 
+datatype Obj = a | b | c
+datatype Arrow = f | g | h | k | id of Obj
+(*
+val example_category =
+    let val s = fn f => b | g => a | h => a
+                 | k => b | id(x) => x
+        and t = fn f => a | g => c | h => c
+                 | k => c | id(x) => x
+        and ident = fn x => id(x)
+        and comp = fn (id(x),u) => if t(u) = x then u else raise non_composable
+                    | (u,id(x)) => if s(u) = x then u else raise non_composable
+                    | (g,f) => k
+                    | (h,f) => k
+                    | _ => raise non_composable
+    in cat(s,t,ident,comp) end
+*)
+
+(** 3.5  Functors **)
+
+(* 3.5.1  Functors computationally *)
+
+datatype ('oA,'aA,'oB,'aB)Functor =
+    ffunctor of ('oA,'aA)Cat * ('oA->'oB) * ('aA->'aB) * ('oB,'aB)Cat
+
+(* 3.5.2  Examples *)
 
 
