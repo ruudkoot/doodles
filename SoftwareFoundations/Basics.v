@@ -64,8 +64,6 @@ Proof. simpl. reflexivity. Qed.
 
 Definition admit {T: Type} : T. Admitted.
 
-(*** Exercise: nandb ***)
-
 Definition nandb (b1:bool) (b2:bool) : bool :=
   match b1 with
     | false => true
@@ -80,8 +78,6 @@ Example test_nandb3: (nandb false true) = true.
 Proof. simpl. reflexivity. Qed.
 Example test_nandb4: (nandb true true) = false.
 Proof. simpl. reflexivity. Qed.
-
-(*** Exercise: andb3 ***)
 
 Definition andb3 (b1:bool) (b2:bool) (b3:bool) : bool :=
   match b1 with
@@ -186,8 +182,6 @@ Fixpoint exp (base power : nat) : nat :=
 Example test_mult1: (mult 3 3) = 9.
 Proof. simpl. reflexivity. Qed.
 
-(*** Exercise: factorial ***)
-
 Fixpoint factorial (n:nat) : nat :=
   match n with
     | O => S O
@@ -237,8 +231,6 @@ Proof. simpl. reflexivity. Qed.
 Example test_ble_nat3: (ble_nat 4 2) = false.
 Proof. simpl. reflexivity. Qed.
 
-(*** blt_nat ***)
-
 Definition blt_nat (n m : nat) : bool :=
   ble_nat (S n) m.
 
@@ -257,8 +249,6 @@ Proof. simpl. reflexivity. Qed.
 Theorem plus_O_n' : forall n:nat, 0 + n = n.
 Proof. reflexivity. Qed.
 
-(*** Exercise: simpl_plus ***)
-
 Eval simpl in (forall n:nat, n + 0 = n).
 Eval simpl in (forall n:nat, 0 + n = n).
 
@@ -274,3 +264,42 @@ Theorem mult_0_l : forall n:nat, 0 * n = 0.
 Proof. intros n. reflexivity. Qed.
 
 (* Proof by Rewriting *)
+
+Theorem plus_id_example : forall n m:nat, n = m -> n + n = m + m.
+Proof. intros n m. intros H. rewrite -> H. reflexivity. Qed.
+
+Theorem plus_id_exercise : forall n m o : nat, n = m -> m = o -> n + m = m + o.
+Proof. intros n m o. intros H1 H2. rewrite -> H1. rewrite -> H2. reflexivity. Qed.
+
+Theorem mult_0_plus : forall n m : nat, (0 + n) * m = n * m.
+Proof. intros n m. rewrite -> plus_O_n. reflexivity. Qed.
+
+Theorem mult_1_plus : forall n m : nat, (1 + n) * m = m + (n * m).
+Proof. intros n m. rewrite -> plus_1_l. reflexivity. Qed.
+
+(* Case Analysis *)
+
+Theorem plus_1_neq_0_firsttry : forall n : nat, beq_nat (n + 1) 0 = false.
+Proof. intros n. simpl. Abort.
+
+Theorem plus_1_neq_0 : forall n : nat, beq_nat (n + 1) 0 = false.
+Proof.
+  intros n. destruct n as [| n'].
+  reflexivity.
+  reflexivity.
+Qed.
+
+Theorem negb_involutive : forall b : bool, negb (negb b) = b.
+Proof.
+  intros b. destruct b.
+  reflexivity.
+  reflexivity.
+Qed.
+
+Theorem zero_nbeq_plus_1 : forall n : nat, beq_nat 0 (n + 1) = false.
+Proof.
+  intros n. destruct n as [|n']; reflexivity.
+Qed.
+
+(* Naming Cases *)
+
