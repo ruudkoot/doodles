@@ -471,9 +471,90 @@ Proof.
   rewrite H. rewrite plus_assoc. rewrite plus_comm. reflexivity.
 Qed.
 
-Theorem mult_comm : forall m n : nat, m * n = n * m.
+Lemma mult_m_Sn : forall m n : nat, m * S n = m * n + m.
 Proof.
+  intros. induction m.
+  reflexivity.
+  simpl. rewrite IHm. rewrite 2 plus_n_Sm. rewrite plus_assoc. reflexivity.
+Qed.
+
+Theorem mult_comm : forall m n : nat, m * n = n * m.
+Proof. (* FIXME: did not use plus_swap *)
   intros. induction n as [n|n'].
   rewrite mult_0_r. reflexivity.
-  simpl.
-Admitted.
+  simpl. rewrite <- IHn'. rewrite mult_m_Sn. rewrite plus_comm. reflexivity.
+Qed.
+
+Theorem evenb_n__oddb_Sn : forall n : nat, evenb n = negb (evenb (S n)).
+Proof.
+  intros. induction n.
+  reflexivity.
+  assert (H: evenb (S (S n)) = evenb n). reflexivity.
+  rewrite H. rewrite IHn. rewrite negb_involutive. reflexivity.
+Qed.
+
+(* More Exercises *)
+
+Theorem ble_nat_refl : forall n:nat, true = ble_nat n n.
+Proof.
+  intros. induction n.
+  reflexivity.
+  simpl. rewrite IHn. reflexivity.
+Qed.
+
+Theorem zero_nbeq_S : forall n : nat, beq_nat 0 (S n) = false.
+Proof.
+  intros. reflexivity.
+Qed.
+
+Theorem andb_false_r : forall b : bool, andb b false = false.
+Proof.
+  intros. destruct b; reflexivity.
+Qed.
+
+Theorem plus_ble_compat_l:
+  forall n m p : nat, ble_nat n m = true -> ble_nat (p + n) (p + m) = true.
+Proof.
+  intros. induction p; assumption.
+Qed.
+
+Theorem S_nbeq_0 : forall n:nat, beq_nat (S n) 0 = false.
+Proof.
+  reflexivity.
+Qed.
+
+Theorem mult_1_l : forall n:nat, 1 * n = n.
+Proof.
+  intros. simpl. rewrite plus_0_r. reflexivity.
+Qed.
+
+Theorem all3_spec : forall b c : bool, orb (andb b c) (orb (negb b) (negb c)) = true.
+Proof.
+  intros. destruct b, c; reflexivity.
+Qed.
+
+Lemma plus_nmp_npm : forall n m p : nat, n + m + p = n + p + m.
+Proof.
+  intros. rewrite <-2 plus_assoc.
+  assert (H: p + m = m + p). rewrite plus_comm. reflexivity.
+  rewrite H. reflexivity.
+Qed.
+
+Theorem mult_plus_distr_r :  forall n m p : nat, (n + m) * p = (n * p) + (m * p).
+Proof. (* FIXME: ugly proof *)
+  intros. induction p.
+  rewrite -> mult_comm. simpl. rewrite mult_comm. simpl. rewrite mult_comm. reflexivity.
+  rewrite mult_m_Sn. rewrite IHp. rewrite 2 mult_m_Sn. rewrite 2 plus_assoc.
+  assert (H: n * p + m * p + n = n * p + n + m * p). rewrite plus_nmp_npm. reflexivity.
+  rewrite H. reflexivity.
+Qed.
+
+Theorem mult_assoc : forall n m p : nat, n * (m * p) = (n * m) * p.
+Proof.
+  intros. induction n.
+  reflexivity.
+  simpl. rewrite IHn. rewrite mult_plus_distr_r. reflexivity.
+Qed.
+
+
+
