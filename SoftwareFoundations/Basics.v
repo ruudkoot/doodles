@@ -556,5 +556,150 @@ Proof.
   simpl. rewrite IHn. rewrite mult_plus_distr_r. reflexivity.
 Qed.
 
+Theorem plus_swap' : forall n m p : nat, n + (m + p) = m + (n + p).
+Proof.
+  intros.
+  replace (m + p) with (p + m). rewrite plus_assoc. rewrite plus_comm. reflexivity.
+  rewrite plus_comm. reflexivity.
+Qed.
 
+Theorem bool_fn_applied_thrice : forall (f : bool -> bool) (b : bool), f (f (f b)) = f b.
+Proof.
+  intros. destruct b.
+  remember (f true) as ftrue. destruct ftrue.
+  rewrite <-2 Heqftrue. reflexivity.
+  remember (f false) as ffalse. destruct ffalse.
+  rewrite <- Heqftrue. reflexivity.
+  rewrite <- Heqffalse. reflexivity.
+  remember (f false) as ffalse. destruct ffalse.
+  remember (f true) as ftrue. destruct ftrue.
+  rewrite <- Heqftrue. reflexivity.
+  rewrite <- Heqffalse. reflexivity.
+  rewrite <-2 Heqffalse. reflexivity.
+Qed.
 
+Module Binary.
+
+Inductive bin : Type :=
+| zero : bin
+| tw : bin -> bin
+| tw_p1 : bin -> bin.
+
+Fixpoint incr (b:bin) : bin :=
+  match b with
+    | zero => tw_p1 zero
+    | tw b' => tw_p1 b'
+    | tw_p1 b' => tw (incr b')
+  end.
+
+Fixpoint bin_to_nat (b:bin) : nat :=
+  match b with
+    | zero => O
+    | tw b' => double (bin_to_nat b')
+    | tw_p1 b' => S (double (bin_to_nat b'))
+  end.
+
+Theorem incr__bin_to_nat__comm : forall b : bin, bin_to_nat (incr b) = S (bin_to_nat b).
+Proof.
+  intros. induction b.
+  reflexivity.
+  reflexivity.
+  simpl. rewrite IHb.
+  assert (H: forall n : nat, double (S n) = S (S (double n))). reflexivity.
+  rewrite H. reflexivity.
+Qed.
+
+Fixpoint nat_to_bin (n : nat) : bin :=
+  match n with
+    | O => zero
+    | S n' => incr (nat_to_bin n')
+  end.
+
+Theorem nat_to_bin_to_nat__id : forall n : nat, bin_to_nat (nat_to_bin n) = n.
+Proof.
+  intros. induction n.
+  reflexivity.
+  simpl. rewrite incr__bin_to_nat__comm. rewrite IHn. reflexivity.
+Qed.
+
+Module BinaryInverse.
+
+(* Representation of 0 is not unique. *)
+
+Lemma nat_to_bin__double : forall n : nat, nat_to_bin (double n) = tw (nat_to_bin n).
+Proof.
+  intros. induction n.
+  simpl. (* zero = tw zero *) admit.
+  simpl.
+
+Admitted.
+
+Theorem bin_to_nat_to_bin__id : forall b : bin, nat_to_bin (bin_to_nat b) = b.
+Proof.
+  intros. induction b.
+  reflexivity.
+  simpl. rewrite nat_to_bin__double. rewrite IHb. reflexivity.
+Abort.
+
+End BinaryInverse.
+
+Fixpoint normalize (b : bin) : bin :=
+  match b with
+    | zero => zero
+    | tw zero => zero
+    | tw b' => tw (normalize b')
+    | tw_p1 b' => tw_p1 (normalize b')
+  end.
+
+Lemma tw_incr__incr_incr_tw:
+  forall b : bin, tw (incr b) = incr (incr (tw b)).
+Proof.
+  intros. destruct b; reflexivity.
+Qed.
+
+Lemma twp1_incr__incr_incr_twp1:
+  forall b : bin, tw_p1 (incr b) = incr (incr (tw_p1 b)).
+Proof.
+  intros. destruct b; reflexivity.
+Qed.
+
+Lemma incr_twp1__tw_incr:
+  forall b : bin, incr (tw_p1 b) = tw (incr b).
+Proof.
+  intros. destruct b; reflexivity.
+Qed.
+
+Lemma normalize_incr__incr_normalize:
+  forall b : bin, normalize (incr b) = incr (normalize b).
+Proof.
+  intros. induction b.
+  reflexivity.
+  destruct b; reflexivity.
+  rewrite incr_twp1__tw_incr. destruct b.
+  reflexivity.
+  (* FIXME *)
+Admitted.
+
+Lemma nat_to_bin__double:
+  forall (n : nat), nat_to_bin (double n) = normalize (tw (nat_to_bin n)).
+Proof.
+  intros. induction n.
+  reflexivity.
+  simpl (nat_to_bin (double (S n))). rewrite IHn.
+  simpl (nat_to_bin (S n)).
+  rewrite tw_incr__incr_incr_tw.
+  rewrite 2 normalize_incr__incr_normalize.
+  reflexivity.
+Qed.
+
+End Binary.
+
+Module Decreasing.
+(*
+Fixpoint terminating_function_that_does_not_pass_termination_checker (n : nat) : bool :=
+  match evenb n with
+    | true => true
+    | false => does_not_pass_termination_checker (S n)
+  end.
+*)
+End Decreasing.
