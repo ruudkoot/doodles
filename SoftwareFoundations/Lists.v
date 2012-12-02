@@ -364,3 +364,51 @@ SearchAbout rev.
 
 (** List Exercises, Part 1 **)
 
+Theorem app_nil_end : forall l : natlist, l ++ [] = l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite IHl. reflexivity.
+Qed.
+
+Lemma rev_snoc__snoc_rev : forall (l : natlist) (n : nat), rev (snoc l n) = n :: rev l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite IHl. reflexivity.
+Qed.
+
+Theorem rev_involutive : forall l : natlist, rev (rev l) = l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite rev_snoc__snoc_rev. rewrite IHl. reflexivity.
+Qed.
+
+Theorem app_ass4:
+  forall l1 l2 l3 l4 : natlist, l1 ++ (l2 ++ (l3 ++ l4)) = ((l1 ++ l2) ++ l3) ++ l4.
+Proof.
+  intros. rewrite 2 app_ass. reflexivity.
+Qed.
+
+Theorem snoc_append : forall (l:natlist) (n:nat), snoc l n = l ++ [n].
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite IHl. reflexivity.
+Qed.
+
+Lemma snoc_rev__rev_snoc : forall (l:natlist) (n:nat), snoc (rev l) n = rev l ++ [n].
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. 
+Admitted.
+
+Theorem distr_rev : forall l1 l2 : natlist, rev (l1 ++ l2) = (rev l2) ++ (rev l1).
+Proof.
+  intros. induction l1.
+  simpl. rewrite app_nil_end. reflexivity.
+  simpl. rewrite IHl1. rewrite snoc_append.
+         rewrite snoc_rev__rev_snoc. rewrite app_ass. reflexivity.
+Qed.
