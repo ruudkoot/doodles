@@ -215,7 +215,9 @@ Proof. reflexivity. Qed.
 Definition member (v:nat) (s:bag) : bool := negb (beq_nat 0 (count v s)).
 
 Example test_member1: member 1 [1,4,1] = true.
+Proof. reflexivity. Qed.
 Example test_member2: member 2 [1,4,1] = false.
+Proof. reflexivity. Qed.
 
 Fixpoint remove_one (v:nat) (s:bag) :=
   match s with
@@ -560,3 +562,33 @@ Qed.
 
 (* Extended Exercise: Dectionaries *)
 
+Module Dictionary.
+
+Inductive dictionary : Type :=
+| empty : dictionary
+| record : nat -> nat -> dictionary -> dictionary.
+
+Definition insert (key value : nat) (d : dictionary) : dictionary := record key value d.
+
+Fixpoint find (key : nat) (d : dictionary) : natoption :=
+  match d with
+    | empty => None
+    | record k v d' => if (beq_nat key k) then (Some v) else (find key d')
+  end.
+
+Theorem dictionary_invariant1:
+  forall (d : dictionary) (k v :nat), (find k (insert k v d)) = Some v.
+Proof.
+  intros. simpl. rewrite <- beq_nat_refl. reflexivity.
+Qed.
+
+Theorem dictionary_invariant2:
+  forall (d : dictionary) (m n o : nat),
+    (beq_nat m n) = false -> (find m d) = (find m (insert n o d)).
+Proof.
+  intros. simpl. rewrite H. reflexivity.
+Qed.
+
+End Dictionary.
+
+End NatList.
