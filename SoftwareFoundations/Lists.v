@@ -399,16 +399,164 @@ Proof.
 Qed.
 
 Lemma snoc_rev__rev_snoc : forall (l:natlist) (n:nat), snoc (rev l) n = rev l ++ [n].
-Proof.
+Proof. (* FIXME *)
   intros. induction l.
   reflexivity.
   simpl. 
 Admitted.
 
 Theorem distr_rev : forall l1 l2 : natlist, rev (l1 ++ l2) = (rev l2) ++ (rev l1).
-Proof.
+Proof. (* FIXME *)
   intros. induction l1.
   simpl. rewrite app_nil_end. reflexivity.
   simpl. rewrite IHl1. rewrite snoc_append.
          rewrite snoc_rev__rev_snoc. rewrite app_ass. reflexivity.
 Qed.
+
+Lemma nonzerso_length:
+  forall l1  l2 : natlist, nonzeros (l1 ++ l2) = (nonzeros l1) ++ (nonzeros l2).
+Proof.
+  intros. induction l1.
+  reflexivity.
+  destruct n; simpl; rewrite IHl1; reflexivity.
+Qed.
+
+(** List Exercise, Part 2 **)
+
+Lemma cons_app:
+  forall (l:natlist) (n:nat), n :: l = [n] ++ l.
+Proof.
+  reflexivity.
+Qed.
+
+Theorem list_design1:
+  forall (l1 l2 : natlist) (n1 n2 : nat), snoc l1 n1 ++ cons n2 l2 = l1 ++ [n1,n2] ++ l2.
+Proof.
+  intros. simpl. rewrite snoc_append. rewrite app_ass.
+  replace (n2 :: l2) with ([n2] ++ l2).
+  replace (n1 :: [n2] ++ l2) with ([n1] ++ [n2] ++ l2).
+  reflexivity.
+  rewrite cons_app. reflexivity.
+  reflexivity.
+Qed.
+
+Theorem count_member_nonzero:
+  forall (s : bag), ble_nat 1 (count 1 (1 :: s)) = true.
+Proof. reflexivity. Qed.
+
+Theorem ble_n_Sn : forall n, ble_nat n (S n) = true.
+Proof.
+  intros. induction n.
+  reflexivity.
+  simpl. rewrite IHn. reflexivity.
+Qed.
+
+Theorem remove_decreases_count:
+  forall (s : bag), ble_nat (count 0 (remove_one 0 s)) (count 0 s) = true.
+Proof.
+  intros. induction s.
+  reflexivity.
+  destruct n.
+  simpl. rewrite ble_nat_Sn. reflexivity.
+  simpl. rewrite IHs. reflexivity.
+Qed.
+
+Theorem bag_count_sum:
+  forall (s1 s2 : bag) (n : nat), count n s1 + count n s2 = count n (sum s1 s2).
+Proof.
+  intros. induction s1.
+  reflexivity.
+  simpl. remember (beq_nat n0 n). destruct b.
+  simpl. rewrite IHs1. reflexivity.
+  rewrite IHs1. reflexivity.
+Qed.
+
+Theorem rev_injective : forall (l1 l2 : natlist), rev l1 = rev l2 -> l1 = l2.
+Proof. (* FIXME *)
+Abort.
+
+(* Options *)
+
+Inductive natoption : Type :=
+| Some : nat -> natoption
+| None : natoption.
+
+Fixpoint index_bad (n:nat) (l:natlist) : nat :=
+  match l with
+    | nil => 42
+    | a :: l' => match beq_nat n 0 with
+                   | true => a
+                   | false => index_bad (pred n) l'
+                 end
+  end.
+
+Fixpoint index (n:nat) (l:natlist) : natoption :=
+  match l with
+    | nil => None
+    | a :: l' => match beq_nat n 0 with
+                   | true => Some a 
+                   | false => index (pred n) l'
+                 end
+  end.
+
+Example test_index1 : index 0 [4,5,6,7] = Some 4.
+Proof. reflexivity. Qed.
+Example test_index2 : index 3 [4,5,6,7] = Some 7.
+Proof. reflexivity. Qed.
+Example test_index3 : index 10 [4,5,6,7] = None.
+Proof. reflexivity. Qed.
+
+Fixpoint index' (n:nat) (l:natlist) : natoption :=
+  match l with
+    | [] => None
+    | a :: l' => if beq_nat n 0 then Some a else index' (pred n) l'
+  end.
+
+Definition option_elim (d : nat) (o : natoption) : nat :=
+  match o with
+    | Some n' => n'
+    | None => d
+  end.
+
+Definition hd_opt (l : natlist) : natoption :=
+  match l with
+    | [] => None
+    | h :: _ => Some h
+  end.
+
+Example test_hd_opt1 : hd_opt [] = None.
+Proof. reflexivity. Qed.
+Example test_hd_opt2 : hd_opt [1] = Some 1.
+Proof. reflexivity. Qed.
+Example test_hd_opt3 : hd_opt [5,6] = Some 5.
+Proof. reflexivity. Qed.
+
+Theorem option_elim_hd:
+  forall (l:natlist) (default:nat), hd default l = option_elim default (hd_opt l).
+Proof.
+  destruct l; reflexivity.
+Qed.
+
+Fixpoint beq_natlist (l1 l2 : natlist) : bool :=
+  match l1, l2 with
+    | [], [] => true
+    | h1 :: t1, h2 :: t2 => if beq_nat h1 h2 then beq_natlist t1 t2 else false
+    | _, _ => false
+  end.
+
+Example test_beq_natlist1 : (beq_natlist nil nil = true).
+Proof. reflexivity. Qed.
+Example test_beq_natlist2 : beq_natlist [1,2,3] [1,2,3] = true.
+Proof. reflexivity. Qed.
+Example test_beq_natlist3 : beq_natlist [1,2,3] [3,2,1] = false.
+Proof. reflexivity. Qed.
+
+Theorem beq_natlist_refl : forall l:natlist, true = beq_natlist l l.
+Proof.
+  induction l.
+  reflexivity.
+  simpl. rewrite <- beq_nat_refl. rewrite IHl. reflexivity.
+Qed.
+
+(* Extended Exercise: Dectionaries *)
+
