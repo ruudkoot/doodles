@@ -186,4 +186,181 @@ Proof. reflexivity. Qed.
 
 Definition bag := natlist.
 
+Fixpoint count (v:nat) (s:bag) : nat :=
+  match s with
+    | [] => 0
+    | h :: t => match beq_nat h v with
+                  | true => S (count v t)
+                  | false => count v t
+                end
+  end.
+
+Example test_count1: count 1 [1,2,3,1,4,1] = 3.
+Proof. reflexivity. Qed.
+Example test_count2: count 6 [1,2,3,1,4,1] = 0.
+Proof. reflexivity. Qed.
+
+Definition sum : bag -> bag -> bag := app.
+
+Example test_sum1: count 1 (sum [1,2,3] [1,4,1]) = 3.
+Proof. reflexivity. Qed.
+
+Definition add (v:nat) (s:bag) : bag := cons v s.
+
+Example test_add1: count 1 (add 1 [1,4,1]) = 3.
+Proof. reflexivity. Qed.
+Example test_add2: count 5 (add 1 [1,4,1]) = 0.
+Proof. reflexivity. Qed.
+
+Definition member (v:nat) (s:bag) : bool := negb (beq_nat 0 (count v s)).
+
+Example test_member1: member 1 [1,4,1] = true.
+Example test_member2: member 2 [1,4,1] = false.
+
+Fixpoint remove_one (v:nat) (s:bag) :=
+  match s with
+    | [] => []
+    | h :: t => match beq_nat v h with
+                 | true => t
+                 | false => h :: remove_one v t
+               end
+  end.
+
+Example test_remove_one1: count 5 (remove_one 5 [2,1,5,4,1]) = 0.
+Proof. reflexivity. Qed.
+Example test_remove_one2: count 5 (remove_one 5 [2,1,4,1]) = 0.
+Proof. reflexivity. Qed.
+Example test_remove_one3: count 4 (remove_one 5 [2,1,4,5,1,4]) = 2.
+Proof. reflexivity. Qed.
+Example test_remove_one4: count 5 (remove_one 5 [2,1,5,4,5,1,4]) = 1.
+Proof. reflexivity. Qed.
+
+Fixpoint remove_all (v:nat) (s:bag) : bag :=
+  match s with
+    | [] => []
+    | h :: t => match beq_nat v h with
+                  | true => remove_all v t
+                  | false => h :: remove_all v t
+                end
+  end.
+
+Example test_remove_all1: count 5 (remove_all 5 [2,1,5,4,1]) = 0.
+Proof. reflexivity. Qed.
+Example test_remove_all2: count 5 (remove_all 5 [2,1,4,1]) = 0.
+Proof. reflexivity. Qed.
+Example test_remove_all3: count 4 (remove_all 5 [2,1,4,5,1,4]) = 2.
+Proof. reflexivity. Qed.
+Example test_remove_all4: count 5 (remove_all 5 [2,1,5,4,5,1,4,5,1,4]) = 0.
+Proof. reflexivity. Qed.
+
+Fixpoint subset (s1:bag) (s2:bag) : bool :=
+  match s1 with
+    | [] => true
+    | h :: t => match member h s2 with
+                  | true => subset t (remove_one h s2)
+                  | false => false
+                end
+  end.
+
+Example test_subset1: subset [1,2] [2,1,4,1] = true.
+Proof. reflexivity. Qed.
+Example test_subset2: subset [1,2,2] [2,1,4,1] = false.
+Proof. reflexivity. Qed.
+
+Theorem bag_theorem1:
+  forall (n : nat) (s : bag), S (count n s) = count n (add n s).
+Proof.
+  intros. induction s; simpl; rewrite <- beq_nat_refl; reflexivity.
+Qed.
+
+Lemma ble_nat_Sn : forall n : nat, ble_nat n (S n) = true.
+Proof.
+  intros. induction n.
+  reflexivity.
+  simpl. rewrite IHn. reflexivity.
+Qed.
+
+Theorem bag_theorem2:
+  forall (n m : nat) (s : bag), ble_nat (count m s) (count m (add n s)) = true.
+Proof.
+  intros. destruct s.
+  reflexivity.
+  simpl. remember (beq_nat n0 m). destruct b.
+  simpl. remember (beq_nat n m). destruct b.
+  rewrite ble_nat_Sn. reflexivity.
+  rewrite <- ble_nat_refl. reflexivity.
+  remember (beq_nat n m). destruct b.
+  rewrite ble_nat_Sn. reflexivity.
+  rewrite <- ble_nat_refl. reflexivity.
+Qed.
+
+(* Reasoning About Lists *)
+
+Theorem nil_app : forall l:natlist, [] ++ l = l.
+Proof. reflexivity. Qed.
+
+Theorem tl_length_pred : forall l:natlist, pred (length l) = length (tail l).
+Proof.
+  intros. destruct l; reflexivity.
+Qed.
+
+(** Induction on Lists **)
+
+Theorem app_ass : forall l1 l2 l3 : natlist, (l1 ++ l2) ++ l3 = l1 ++ (l2 ++ l3).
+Proof.
+  intros. induction l1.
+  reflexivity.
+  simpl. rewrite IHl1. reflexivity.
+Qed.
+
+Theorem app_length : forall l1 l2 : natlist, length (l1 ++ l2) = (length l1) + (length l2).
+Proof.
+  intros. induction l1.
+  reflexivity.
+  simpl. rewrite IHl1. reflexivity.
+Qed.
+
+Fixpoint snoc (l:natlist) (v:nat) : natlist :=
+  match l with
+    | nil => [v]
+    | h :: t => h :: (snoc t v)
+  end.
+
+Fixpoint rev (l:natlist) : natlist :=
+  match l with
+    | [] => []
+    | h :: t => snoc (rev t) h
+  end.
+
+Example test_rev1: rev [1,2,3] = [3,2,1].
+Proof. reflexivity. Qed.
+Example test_rev2: rev nil = nil.
+Proof. reflexivity. Qed.
+
+Theorem rev_length_firsttry : forall l : natlist, length (rev l) = length l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite <- IHl.
+Abort.
+
+Theorem length_snoc : forall n : nat, forall l : natlist, length (snoc l n) = S (length l).
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite IHl. reflexivity.
+Qed.
+
+Theorem rev_length : forall l : natlist, length (rev l) = length l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  simpl. rewrite length_snoc. rewrite IHl. reflexivity.
+Qed.
+
+(** SearchAbout **)
+
+SearchAbout rev.
+
+(** List Exercises, Part 1 **)
 
