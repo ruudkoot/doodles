@@ -560,3 +560,192 @@ Qed.
 
 (** The 'unfold' Tactic **)
 
+Theorem unfold_example_bad : forall m n, 3 + n = m -> plus3 n + 1 = m + 1.
+Proof.
+  intros m n H.
+Abort.
+
+Theorem unfold_example : forall m n, 3 + n = m -> plus3 n + 1 = m + 1.
+Proof.
+  intros m n H.
+  unfold plus3.
+  rewrite -> H.
+  reflexivity.
+Qed.
+
+Theorem override_eq : forall {X:Type} x k (f:nat->X), (override f k x) k = x.
+Proof.
+  intros X x k f.
+  unfold override.
+  rewrite <- beq_nat_refl.
+  reflexivity.
+Qed.
+
+Theorem override_neq:
+  forall {X:Type} x1 x2 k1 k2 (f : nat->X),
+    f k1 = x1 -> beq_nat k2 k1 = false -> (override f k2 x2) k1 = x1.
+Proof.
+  intros X x1 x2 k1 k2 f H1 H2.
+  unfold override.
+  rewrite -> H2.
+  apply H1.
+Qed.
+
+(** Inversion **)
+
+Theorem eq_add_S : forall (n m : nat), S n = S m -> n = m.
+Proof.
+  intros n m eq. inversion eq. reflexivity.
+Qed.
+
+Theorem silly4 : forall (n m : nat), [n] = [m] -> n = m.
+Proof.
+  intros n o eq. inversion eq. reflexivity.
+Qed.
+
+Theorem silly5 : forall (n m o : nat), [n,m] = [o,o] -> [n] = [m].
+Proof.
+  intros n m o eq. inversion eq. reflexivity.
+Qed.
+
+Example sillyex1 : forall (X : Type) (x y z : X) (l j : list X),
+                     x :: y :: l = z :: j -> y :: l = x :: j -> x = y.
+Proof.
+  intros X x y z l j H1 H2.
+  inversion H1. inversion H2.
+  rewrite H0. reflexivity.
+Qed.
+
+Theorem silly6 : forall (n : nat),
+                   S n = 0 -> 2 + 2 = 5.
+Proof.
+  intros n contra.
+  inversion contra.
+Qed.
+
+Theorem silly7 : forall (n m : nat),
+                   false = true -> [n] = [m].
+Proof.
+  intros n m contra.
+  inversion contra.
+Qed.
+
+Theorem sillyex2 : forall (X : Type) (x y z : X) (l j : list X),
+                     x :: y :: l = [] -> y :: l = z :: j -> x = z.
+Proof.
+  intros X x y z l j H1 H2.
+  inversion H1.
+Qed.
+
+Lemma eq_remove_S : forall n m, n = m -> S n = S m.
+Proof.
+  intros n m eq. rewrite -> eq. reflexivity.
+Qed.
+
+Theorem length_snoc' : forall (X : Type) (v : X) (l : list X) (n : nat),
+                         length l = n -> length (snoc l v) = S n.
+Proof.
+  intros X v l. induction l.
+  intros n eq. rewrite <- eq. reflexivity.
+  intros n eq. simpl. destruct n.
+  inversion eq.
+  apply eq_remove_S. apply IHl. inversion eq. reflexivity.
+Qed.
+
+(** Varying the Induction Hypothesis **)
+
+Theorem beq_nat_eq_FAILED : forall n m, true = beq_nat n m -> n = m.
+Proof.
+  intros n m H. induction n.
+  destruct m.
+  reflexivity.
+  simpl in H. inversion H.
+  destruct m.
+  simpl in H. inversion H.
+  apply eq_remove_S.
+Abort.
+
+Theorem beq_nat_eq : forall n m, true = beq_nat n m -> n = m.
+Proof.
+  intros n. induction n.
+  intros m. destruct m.
+  reflexivity.
+  simpl. intros contra. inversion contra.
+  intros m. destruct m.
+  simpl. intros contra. inversion contra.
+  simpl. intros H. apply eq_remove_S. apply IHn. apply H.
+Qed.
+
+(* FIXME: informal proof *)
+
+Theorem beq_nat_eq' : forall m n, beq_nat n m = true -> n = m.
+Proof.
+  intros m. induction m.
+  intros n. destruct n.
+  reflexivity.
+  simpl. intros H. inversion H.
+  intros n. destruct n.
+  simpl. intros H. inversion H.
+  simpl. intros H. apply eq_remove_S. apply IHm. apply H.
+Qed.
+
+(*** Practice Session ***)
+
+Theorem beq_nat_0_l : forall n, true = beq_nat 0 n -> 0 = n.
+Proof.
+  intros n H. destruct n.
+  reflexivity.
+  inversion H.
+Qed.
+
+Theorem beq_nat_0_r : forall n, true = beq_nat 0 n -> 0 = n.
+Proof.
+  intros n H. destruct n.
+  reflexivity.
+  inversion H.
+Qed.
+
+Theorem beq_nat_sym : forall (n m : nat), beq_nat n m = beq_nat m n.
+Proof.
+  intros n. induction n.
+  destruct m; reflexivity.
+  destruct m.
+  reflexivity.
+  apply IHn.
+Qed.
+
+(* FIXME: informal proof *)
+
+(** Using Tactics on Hypotheses **)
+
+Theorem S_inj : forall (n m : nat) (b : bool), beq_nat (S n) (S m) = b -> beq_nat n m = b.
+Proof.
+  intros n m b H. simpl in H. apply H.
+Qed.
+
+Theorem silly3':
+  forall (n : nat),
+    (beq_nat n 5 = true -> beq_nat (S (S n)) 7 = true) ->
+    true = beq_nat n 5 ->
+    true = beq_nat (S (S n)) 7.
+Proof.
+  intros n eq H.
+  symmetry in H. apply eq in H. symmetry in H.
+  apply H.
+Qed.
+
+Theorem plus_n_n_injective:
+  forall n m, n + n = m + m -> n = m.
+Proof.
+  intros n. induction n.
+  intros m H. destruct m.
+  reflexivity.
+  inversion H.
+  intros m H. destruct m.
+  inversion H.
+  simpl in H. rewrite <-2 plus_n_Sm in H. apply eq_add_S in H. apply eq_add_S in H.
+    apply IHn in H. apply eq_remove_S in H. apply H.
+Qed.
+
+(** Using 'destruct' on Compound Expressions **)
+
