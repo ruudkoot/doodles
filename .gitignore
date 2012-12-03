@@ -7,3 +7,5 @@ cabal-dev
 *~
 *.agdai
 *.beam
+*.vo
+*.glob

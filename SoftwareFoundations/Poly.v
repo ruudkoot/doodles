@@ -769,6 +769,124 @@ Proof.
   intros. unfold override. destruct (beq_nat k1 k2); reflexivity.
 Qed.
 
-Theorem combine_split : forall X Y (l : list (X * Y)) l1 l2,
+Lemma cons_add : forall X (l1 l2 : list X) (x : X), l1 = l2 -> x :: l1 = x :: l2.
+Proof.
+  intros. inversion H. rewrite <- H. reflexivity.
+Qed.
+
+Lemma split_cons:
+  forall X Y (l : list (X * Y)) (l1 : list X) (l2 : list Y) (x : X) (y : Y),
+    split l = (l1, l2) -> split ((x,y) :: l) = (x :: l1, y :: l2).
+Proof.
+  intros. induction l.
+  inversion H. reflexivity.
+  simpl. destruct x0.
+Abort. (* FIXME *)
+
+Theorem combine_split 
+
+: forall X Y (l : list (X * Y)) l1 l2,
                           split l = (l1, l2) -> combine l1 l2 = l.
 Proof.
+  intros X Y l. induction l as [|[x y] l'].
+  intros l1 l2 H. inversion H. reflexivity.
+  intros l1 l2 H. inversion H. destruct (split l') in H1. inversion H1. simpl.
+    apply cons_add. apply IHl'.
+Abort. (* FIXME *)
+
+(** The 'remember' Tactic **)
+
+Definition sillyfun1 (n : nat) : bool :=
+  if beq_nat n 3 then true
+  else if beq_nat n 5 then true
+       else false.
+
+Theorem sillyfun1_odd_FAILED:
+  forall (n : nat), sillyfun1 n = true -> oddb n = true.
+Proof.
+  intros n eq. unfold sillyfun1 in eq.
+  destruct (beq_nat n 3).
+Abort.
+
+Theorem sillyfun1_odd:
+  forall (n : nat), sillyfun1 n = true -> oddb n = true.
+Proof.
+  intros n eq. unfold sillyfun1 in eq.
+  remember (beq_nat n 3) as e3.
+  destruct e3.
+  apply beq_nat_eq in Heqe3. rewrite -> Heqe3. reflexivity.
+  remember (beq_nat n 5) as e5. destruct e5.
+  apply beq_nat_eq in Heqe5. rewrite -> Heqe5. reflexivity.
+  inversion eq.
+Qed.
+
+Theorem override_same:
+  forall {X:Type} x1 k1 k2 (f : nat->X), f k1 = x1 -> (override f k1 x1) k2 = f k2.
+Proof.
+  intros. unfold override. remember (beq_nat k1 k2). destruct b.
+  apply beq_nat_eq in Heqb. rewrite <- Heqb. symmetry. apply H.
+  reflexivity.
+Qed.
+
+Theorem filter_exercise:
+  forall (X : Type) (test : X -> bool) (x : X) (l lf : list X),
+    filter test l = x :: lf -> test x = true.
+Proof.
+  intros X test x. induction l.
+  intros. inversion H.
+  simpl. remember (test x0). destruct b.
+  intros. inversion H. symmetry. rewrite <- H1. apply Heqb.
+  apply IHl.
+Qed.
+
+(** The 'apply ... with ...' Tactic **)
+
+Example trans_eq_example:
+ forall (a b c d e f : nat), [a,b] = [c,d] -> [c,d] = [e,f] -> [a,b] = [e,f].
+Proof.
+  intros a b c d e f eq1 eq2.
+  rewrite -> eq1. rewrite -> eq2. reflexivity.
+Qed.
+
+Theorem trans_eq : forall {X:Type} (n m o : X), n = m -> m = o -> n = o.
+Proof.
+  intros X n m o eq1 eq2.
+  rewrite -> eq1. rewrite -> eq2. reflexivity.
+Qed.
+
+Example trans_eq_example':
+  forall (a b c d e f : nat), [a,b] = [c,d] -> [c,d] = [e,f] -> [a,b] = [e,f].
+Proof.
+  intros a b c d e f eq1 eq2.
+  apply trans_eq with (m:=[c,d]). apply eq1. apply eq2.
+Qed.
+
+Example trans_eq_exercise:
+  forall (n m o p : nat), m = (minustwo o) -> (n + p) = m -> (n + p ) = (minustwo o).
+Proof.
+  intros n m o p eq1 eq2.
+  apply trans_eq with m. apply eq2. apply eq1.
+Qed.
+
+Theorem beq_nat_trans:
+  forall n m p, true = beq_nat n m -> true = beq_nat m p -> true = beq_nat n p.
+Proof.
+  intros n m p eq1 eq2.
+  apply beq_nat_eq in eq1. apply beq_nat_eq in eq2.
+  rewrite eq1. rewrite eq2. apply beq_nat_refl.
+Qed.
+
+Theorem override_permute:
+  forall {X:Type} x1 x2 k1 k2 k3 (f : nat->X),
+    false = beq_nat k2 k1 ->
+    (override (override f k2 x2) k1 x1) k3 = (override (override f k1 x1) k2 x2) k3.
+Proof.
+  intros X x1 x2 k1 k2 k3 f H. unfold override.
+  remember (beq_nat k1 k3). destruct b.
+  remember (beq_nat k2 k3). destruct b.
+  rewrite beq_nat_sym in Heqb.
+  rewrite beq_nat_trans with (n:=k2) (m:=k3) (p:=k1) in Heqb0.
+Admitted. (* FIXME *)
+
+(* Additional Exercise *)
+
