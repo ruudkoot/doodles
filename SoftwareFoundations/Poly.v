@@ -749,3 +749,26 @@ Qed.
 
 (** Using 'destruct' on Compound Expressions **)
 
+Definition sillyfun (n : nat) : bool :=
+  if beq_nat n 3 then false
+  else if beq_nat n 5 then false
+       else false.
+
+Theorem sullyfun_false : forall (n : nat), sillyfun n = false.
+Proof.
+  intros n. unfold sillyfun.
+  destruct (beq_nat n 3).
+  reflexivity.
+  destruct (beq_nat n 5); reflexivity.
+Qed.
+
+Theorem override_shadow:
+  forall {X:Type} x1 x2 k1 k2 (f : nat-> X),
+    (override (override f k1 x2) k1 x1) k2 = (override f k1 x1) k2.
+Proof.
+  intros. unfold override. destruct (beq_nat k1 k2); reflexivity.
+Qed.
+
+Theorem combine_split : forall X Y (l : list (X * Y)) l1 l2,
+                          split l = (l1, l2) -> combine l1 l2 = l.
+Proof.
