@@ -890,3 +890,111 @@ Admitted. (* FIXME *)
 
 (* Additional Exercise *)
 
+Definition fold_length {X : Type} (l : list X) : nat :=
+  fold (fun _ n => S n) l 0.
+
+Example test_fold_length1 : fold_length [4,7,0] = 3.
+Proof. reflexivity. Qed.
+
+Theorem fold_length_correct : forall X (l : list X), fold_length l = length l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  unfold fold_length. simpl. unfold fold_length in IHl. rewrite IHl. reflexivity.
+Qed.
+
+Definition fold_map {X Y : Type} (f : X -> Y) (l : list X) : list Y :=
+  fold (fun h t => f h :: t) l [].
+
+Theorem fold_map_correct : forall X Y (f : X -> Y) (l : list X), fold_map f l = map f l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  unfold fold_map. unfold fold_map in IHl. simpl. rewrite IHl. reflexivity.
+Qed.
+
+Module MumbleBaz.
+
+Inductive mumble : Type :=
+| a : mumble
+| b : mumble -> nat -> mumble
+| c : mumble.
+Inductive grumble (X:Type) : Type :=
+| d : mumble -> grumble X
+| e : X -> grumble X.
+
+(* Check d (b a 5). *)
+Check d mumble (b a 5).
+Check d bool (b a 5).
+Check e bool true.
+Check e mumble (b c 0).
+(* Check e bool (b c 0). *)
+Check c.
+
+Inductive baz : Type :=
+| x : baz -> baz
+| y : baz -> bool -> baz.
+
+End MumbleBaz.
+
+Fixpoint forallb {X : Type} (p : X -> bool) (l : list X) : bool :=
+  match l with
+    | [] => true
+    | h :: t => match p h with
+                  | true => forallb p t
+                  | false => false
+                end
+  end.
+
+Example test_forallb1: forallb oddb [1,3,5,7,9] = true.
+Proof. reflexivity. Qed.
+Example test_forallb2: forallb negb [false,false] = true.
+Proof. reflexivity. Qed.
+Example test_forallb3: forallb evenb [0,2,4,5] = false.
+Proof. reflexivity. Qed.
+Example test_forallb4: forallb (beq_nat 5) [] = true.
+Proof. reflexivity. Qed.
+
+Fixpoint existsb {X : Type} (p : X -> bool) (l : list X) : bool :=
+  match l with
+    | [] => false
+    | h :: t => match p h with
+                  | true => true
+                  | false => existsb p t
+                end
+  end.
+
+Example test_existsb1: existsb (beq_nat 5) [0,2,3,6] = false.
+Proof. reflexivity. Qed.
+Example test_existsb2: existsb (andb true) [true,true,false] = true.
+Proof. reflexivity. Qed.
+Example test_existsb3: existsb oddb [1,0,0,0,0,3] = true.
+Proof. reflexivity. Qed.
+Example test_existsb4: existsb evenb [] = false.
+Proof. reflexivity. Qed.
+
+Definition existsb' {X : Type} (p : X -> bool) (l : list X) :=
+  negb (forallb (fun x => negb (p x)) l).
+
+Example test_existsb1': existsb' (beq_nat 5) [0,2,3,6] = false.
+Proof. reflexivity. Qed.
+Example test_existsb2': existsb' (andb true) [true,true,false] = true.
+Proof. reflexivity. Qed.
+Example test_existsb3': existsb' oddb [1,0,0,0,0,3] = true.
+Proof. reflexivity. Qed.
+Example test_existsb4': existsb' evenb [] = false.
+Proof. reflexivity. Qed.
+
+Theorem existsb'_correct:
+  forall X (p : X -> bool) (l : list X), existsb' p l = existsb p l.
+Proof.
+  intros. induction l.
+  reflexivity.
+  unfold existsb'. simpl. remember (p x). destruct b.
+  reflexivity.
+  simpl. rewrite <- IHl. unfold existsb'. reflexivity.
+Qed.
+
+Theorem index_informal: forall X n l, length l = n -> @index X (S n) l = None.
+Proof.
+Abort. (* FIXME *)
