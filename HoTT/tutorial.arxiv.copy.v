@@ -21,10 +21,11 @@
 Definition UU := Type.
 
 (** Coq secretly assigns indices to each Type which occurs in an internally consistent way.  To play around with this a bit, you might uncomment the following code and run it through Coq to see what you get back in the *response* buffer: *)
-(** 
+ 
 Check Type.
 Set Printing Universes.
 Check Type.
+(**
 Unset Printing Universes.
 *)
 
@@ -150,7 +151,7 @@ Notation idpath := identity_refl.
 
 Definition pathsinv { A : UU } { a b : A } ( f : paths a b ) : paths b a.
 Proof.
-  destruct f. apply idpath. 
+  destruct f. apply idpath.
 Defined.
 
 (** pathscomp f g gives the composite g.f of two paths f and g. This is called pathscomp0 in Voevodsky's files.*)
@@ -213,8 +214,6 @@ Proof.
   intros e. destruct f. assumption.
 Defined.
 
-
-
 (** ** Section 6.1: Homotopy and homotopy equivalence. *)
 
 
@@ -250,13 +249,11 @@ Proof.
   apply backandforth. apply forthandback.
 Defined.
 
-
-
 (** ** Section 6.3: Paths in the total space.*)
 
 Lemma pathintotalfiber { B : UU } { E : B -> UU } { x y : total E } ( f : paths ( pr1 x ) ( pr1 y ) ) ( g : paths ( transportf E f ( pr2 x ) ) ( pr2 y ) ) : paths x y.
 Proof.
-  intros. destruct x as [ x0 x1 ]. destruct y as [ y0 y1 ].  simpl in *. destruct f. destruct g. apply idpath.
+  intros. destruct x as [ x0 x1 ]. destruct y as [ y0 y1 ].  simpl in *. destruct f. destruct g. simpl. apply idpath.
 Defined.
 
 Definition pathintotalfiberpr1 { B : UU } { E : B -> UU } { x y : total E } ( f : paths x y ) : paths ( pr1 x ) ( pr1 y ) := pr1 ` f.
