@@ -1,0 +1,47 @@
+%%%%%%% Proving metatheorems
+
+%% Natural numbers
+
+nat : type.
+z   : nat.
+s   : nat -> nat.
+
+%% Representing the judgements of the natural numbers
+
+even   : nat -> type.
+even-z : even z.
+even-s : {N:nat} even N -> even (s (s N)).
+
+%% Addition
+
+plus   : nat -> nat -> nat -> type.
+plus-z : {N2:nat} plus z N2 N2.
+plus-s : {N1:nat} {N2:nat} {N3:nat} plus N1 N2 N3 -> plus (s N1) N2 (s N3).
+
+%% Full LF
+
+2 : nat = s (s z).
+even-2 : even 2 = even-s z even-z.
+ss : nat -> nat = [x:nat] s (s x).
+even-4 : even (ss 2) = even-s 2 even-2.
+
+%%% Implicit arguments
+
+%%%% explicit
+plus-z : {N2:nat} plus z N2 N2.
+plus-s : {N1:nat} {N2:nat} {N3:nat} plus N1 N2 N3 -> plus (s N1) N2 (s N3).
+
+d2+1e = plus-s (s z) (s z) (s (s z))
+	 (plus-s z (s z) (s z)
+	    (plus-z (s z))).
+
+%%%% implicit
+plus-z : plus z N2 N2.
+plus-s : plus N1 N2 N3 -> plus (s N1) N2 (s N3).
+
+d2+1i = plus-s (plus-s plus-z).
+
+%%% Backwards arrow
+
+plus-s : plus (s N1) N2 (s N3) <- plus N1 N2 N3.
+
