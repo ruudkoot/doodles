@@ -28,20 +28,48 @@ even-4 : even (ss 2) = even-s 2 even-2.
 %%% Implicit arguments
 
 %%%% explicit
+
 plus-z : {N2:nat} plus z N2 N2.
 plus-s : {N1:nat} {N2:nat} {N3:nat} plus N1 N2 N3 -> plus (s N1) N2 (s N3).
 
 d2+1e = plus-s (s z) (s z) (s (s z))
 	 (plus-s z (s z) (s z)
 	    (plus-z (s z))).
+d2+1e' = plus-s _ _ _ (plus-s _ _ _ (plus-z (s z))).
 
 %%%% implicit
+
 plus-z : plus z N2 N2.
 plus-s : plus N1 N2 N3 -> plus (s N1) N2 (s N3).
 
 d2+1i = plus-s (plus-s plus-z).
+d2+li' = plus-s (plus-s (plus-z : plus z (s z) (s z))).
 
 %%% Backwards arrow
 
 plus-s : plus (s N1) N2 (s N3) <- plus N1 N2 N3.
+
+%% Proving totality assertions about the natural numbers
+
+% mode plus +N1 +N2 -N3.
+% worlds () (plus _ _ _).
+% total N1 (plus N1 _ _).
+
+%%% How Twelf checks assertions
+
+%%%% Mode
+
+% plus-bad-mode : plus N1 N2 N3.
+% plus-bad-mode2 : plus N1 N2 N3 <- plus N4 N2 N3.
+
+%%%% Termination
+
+% %total N2 (plus _ N2 _).
+
+%%%% Output coverage
+
+% %mode plus +X1 +X2 -X3.
+% plus-bad-output : plus (s N1) N2 (s (s N3)) <- plus N1 N2 (s N3).
+% %worlds () (plus _ _ _).
+% %total N1 (plus N1 N2 N3).
 
