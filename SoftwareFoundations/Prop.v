@@ -50,3 +50,72 @@ Print eight_is_beautiful'.
 Print eight_is_beautiful''.
 Print eight_is_beautiful'''.
 
+Theorem six_is_beautiful: beautiful 6.
+Proof.
+  apply b_sum with (n:=3) (m:= 3).
+    apply b_3.
+    apply b_3.
+Qed.
+
+Definition six_is_beautiful' : beautiful 6 := b_sum 3 3 b_3 b_3.
+Definition six_is_beautiful'': beautiful 6 := b_sum _ _ b_3 b_3.
+
+Theorem nine_is_beautiful: beautiful 9.
+Proof.
+  apply b_sum with (n := 3) (m := 6).
+    apply b_3.
+    apply b_sum with (n := 3) (m := 3).
+      apply b_3.
+      apply b_3.
+Qed.
+
+Definition nine_is_beautiful' : beautiful 9 := b_sum 3 6 b_3 (b_sum 3 3 b_3 b_3).
+Definition nine_is_beautiful'': beautiful 9 := b_sum _ _ (b_sum _ _ b_3 b_3) b_3.
+
+(** Implications and Functions **)
+
+Theorem b_plus3: forall n, beautiful n -> beautiful (3+n).
+Proof.
+  intros n H. apply b_sum. apply b_3. apply H.
+Qed.
+
+Print b_plus3.
+
+Definition b_plus3' : forall n, beautiful n -> beautiful (3+n) :=
+  fun n => fun H : beautiful n =>
+             b_sum 3 n b_3 H.
+
+Check b_plus3'.
+
+Definition b_plus3'' (n : nat) (H: beautiful n) : beautiful (3+n) :=
+  b_sum 3 n b_3 H.
+
+Check b_plus3''.
+
+Theorem test: forall n, n + 0 = n.
+Proof.
+  intros. rewrite plus_0_r. reflexivity.
+Qed.
+
+Theorem b_times2: forall n, beautiful n -> beautiful (2*n).
+Proof.
+  intros. simpl. rewrite plus_0_r. apply b_sum; apply H.
+Defined.
+
+Print b_times2.
+
+Definition b_times2': forall n, beautiful n -> beautiful (2*n) :=
+  fun n => fun H : beautiful n =>
+             match eq_sym (plus_0_r n) in (_ = n') return (beautiful (n + n')) with
+               | eq_refl => b_sum n n H H
+             end.
+
+Theorem b_timesm: forall n m, beautiful n -> beautiful (m*n).
+Proof.
+  intros. induction m.
+    simpl. apply b_0.
+    simpl. apply b_sum.
+      apply H.
+      apply IHm.
+Qed.
+
