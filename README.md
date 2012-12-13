@@ -1,4 +1,4 @@
 haskell-doodles
 ===============
 
-Doodling in Haskell
+A random collection of experiments in Haskell, Coq, Agda, Twelf, Erlang, ML, ...
