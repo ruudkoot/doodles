@@ -231,3 +231,169 @@ Proof.
       apply ev_0.
       simpl. (* FIXME: can we go further here? *)
 Abort.
+
+Theorem ev__even : forall n, ev n -> even n.
+Proof.
+  intros n E. induction E as [| n' E'].
+    unfold even. reflexivity.
+    unfold even. apply IHE'.
+Qed.
+
+Theorem ev__even_FAILED : forall n, ev n -> even n.
+  intros n. induction n.
+    intros E. unfold even. reflexivity.
+    intros E. unfold even. (* FIXME: can we go further here? *)
+Abort.
+
+Theorem l : forall n, ev n.
+Proof.
+  intros n. induction n.
+    apply ev_0.
+    (* If n is even (induction hypothesis) then n + 1 (the goal) will not be. *)
+Abort.
+
+Theorem ev_sum : forall n m, ev n -> ev m -> ev (n+m).
+Proof.
+  intros n m H1 H2. induction H1.
+    simpl. apply H2.
+    simpl. apply ev_SS. apply IHev.
+Qed.
+
+Theorem SSev_ev_firsttry : forall n, ev (S (S n)) -> ev n.
+Proof.
+  intros n E. destruct E.
+  (* Stuck: destruct gives us an unprovable subgoal. *)
+Abort.
+
+Theorem SSev_ev_secondtry: forall n, ev (S (S n)) -> ev n.
+Proof.
+  intros n E. remember (S (S n)) as n2.
+  destruct E.
+    inversion Heqn2.
+    inversion Heqn2. rewrite <- H0. apply E.
+Qed.
+
+Theorem SSev__even: forall n, ev (S (S n)) -> ev n.
+Proof.
+  intros n E. inversion E as [| n' E']. apply E'.
+Qed.
+
+Print SSev__even.
+
+Theorem SSSSev__even: forall n, ev (S (S (S (S n)))) -> ev n.
+Proof.
+  intros n E. inversion E as [| n' E']. inversion E' as [| n'' E'']. apply E''.
+Qed.
+
+Theorem even5_nonsense: ev 5 -> 2 + 2 = 9.
+Proof.
+  intros H. inversion H as [| n' H']. inversion H' as [| n'' H'']. inversion H''.
+Qed.
+
+Theorem ev_minus2': forall n, ev n -> ev (pred (pred n)).
+Proof.
+  intros n E. inversion E as [| n' E'].
+    simpl. apply ev_0.
+    simpl. apply E'.
+Qed.
+
+Theorem ev_ev__ev : forall n m, ev (n+m) -> ev n -> ev m.
+Proof.
+Abort. (* FIXME *)
+
+Theorem ev_plus_plus: forall n m p, ev (n+m) -> ev (n+p) -> ev (m+p).
+Proof.
+Abort. (* FIXME *)
+
+(* Programming with Propositions *)
+
+Check (2 + 2 = 4).
+Check (ble_nat 3 2 = false).
+Check (beautiful 8).
+
+Check (2 + 2 = 5).
+Check (beautiful 4).
+
+Theorem plus_2_2_is_4: 2 + 2 = 4.
+Proof.
+  reflexivity.
+Qed.
+
+Definition plus_fact : Prop := 2 + 2 = 4.
+Check plus_fact.
+
+Theorem plus_fact_is_true: plus_fact.
+Proof.
+  reflexivity.
+Qed.
+
+Definition strange_prop1 : Prop := (2 + 2 = 5) -> (99 + 26 = 42).
+Definition strange_prop2 : Prop :=
+  forall n, (ble_nat n 17 = true) -> (ble_nat n 99 = true).
+
+Check even.
+Check (even 4).
+Check (even 3).
+
+Definition between (n m o: nat) : Prop :=
+  andb (ble_nat n o) (ble_nat o m) = true.
+
+Definition teen : nat->Prop := between 13 19.
+
+Definition true_for_zero (P:nat->Prop) : Prop :=
+  P 0.
+
+Definition true_for_al_numbers (P:nat->Prop) : Prop :=
+  forall n, P n.
+
+Definition preserved_by_S (P:nat->Prop) : Prop :=
+  forall n', P n' -> P (S n').
+
+(* Induction Principles *)
+
+(** Induction Principles for Inductively Defined Types **)
+
+Check nat_ind.
+
+Theorem mult_0_r' : forall n:nat, n * 0 = 0.
+Proof.
+  apply nat_ind.
+    reflexivity.
+    simpl. intros n IHn. rewrite -> IHn. reflexivity.
+Qed.
+
+Theorem plus_one_r' : forall n:nat, n + 1 = S n.
+Proof.
+  apply nat_ind.
+    reflexivity.
+    simpl. intros n H. apply eq_remove_S. apply H.
+Qed.
+
+Inductive yesno : Type :=
+| yes : yesno
+| no :yesno.
+
+Check yesno_ind.
+
+Inductive rgb : Type :=
+| red : rgb
+| green : rgb
+| blue : rgb.
+
+(* rgb_ind : forall P : rgb -> Prop, P red -> P green -> P blue -> forall c : rgb, P c *)
+
+Check rgb_ind.
+
+Inductive natlist : Type :=
+| nnil : natlist
+| ncons : nat -> natlist -> natlist.
+
+Check natlist_ind.
+
+Inductive natlist1 : Type :=
+| nnil1 : natlist1
+| nsnoc1 : natlist1 -> nat -> natlist1.
+
+(* natlist1_ind : forall P : natlist1 -> Prop, P nnil1 -> (forall (n : nat) (n0 : natlist1), P n0 -> P (ncons n0 n)) -> forall n : natlist1, P n *)
+
+Check natlist1_ind.
