@@ -397,3 +397,224 @@ Inductive natlist1 : Type :=
 (* natlist1_ind : forall P : natlist1 -> Prop, P nnil1 -> (forall (n : nat) (n0 : natlist1), P n0 -> P (ncons n0 n)) -> forall n : natlist1, P n *)
 
 Check natlist1_ind.
+
+Inductive ExSet : Type :=
+| con1 : bool -> ExSet
+| con2 : nat -> ExSet -> ExSet.
+
+Check ExSet_ind.
+(*
+Inductive list (X:Type) : Type :=
+| nil : list X
+| cons : X -> list X -> list X.
+*)
+Check list_ind.
+
+Inductive tree (X:Type) : Type :=
+| leaf : X -> tree X
+| node : tree X -> tree X -> tree X.
+
+(* tree_int : forall (X : Type) (P : tree X -> Prop),
+                     (forall (x : X), P (leaf X x)) ->
+                     (forall (l r : tree X), P l -> P r -> P (node X l r)) ->
+                     forall t : tree X, P t
+*)
+
+Check tree_ind. (* Coq splits the forall (l r : tree X) *)
+
+Inductive mytype (X:Type) : Type :=
+| constr1 : X -> mytype X
+| constr2 : nat -> mytype X
+| constr3 : mytype X -> nat -> mytype X.
+
+Check mytype_ind.
+
+Inductive foo (X Y : Type) : Type :=
+| bar : X -> foo X Y
+| baz : Y -> foo X Y
+| quux : (nat -> foo X Y) -> foo X Y.
+
+Check foo_ind.
+
+Inductive foo' (X:Type) : Type :=
+| C1 : list X -> foo' X -> foo' X
+| C2 : foo' X.
+
+(* foo'_ind: forall (X : Type) (P : foo' X -> Prop),
+               (forall (l : list X) (f : foo' X),
+                  P f ->
+                  P (C1 X l f)                    ) ->
+             P (C2 X) ->
+             forall f : foo' X, P f
+*)
+
+Check foo'_ind.
+
+(** Induction Hypotheses **)
+
+Definition P_m0r (n:nat) : Prop :=
+  n * 0 = 0.
+
+Definition P_m0r' : nat -> Prop :=
+  fun n => n * 0 = 0.
+
+Theorem mult_0_r'' : forall n : nat, P_m0r n.
+Proof.
+  apply nat_ind.
+  reflexivity.
+  unfold P_m0r. simpl. intros n' IHn'. apply IHn'.
+Qed.
+
+(* Optional Material *)
+
+(** Induction Principles in 'Prop' **)
+
+Check gorgeous_ind.
+
+Theorem gorgeous__beautiful' : forall n, gorgeous n -> beautiful n.
+Proof.
+  intros.
+  apply gorgeous_ind.
+    apply b_0.
+    intros. apply b_sum. apply b_3. apply H1.
+    intros. apply b_sum. apply b_5. apply H1.
+  apply H.
+Qed.
+
+Module P.
+
+  Inductive p : (tree nat) -> nat -> Prop :=
+  | c1 : forall n, p (leaf _ n) 1
+  | c2 : forall t1 t2 n1 n2, p t1 n1 -> p t2 n2 -> p (node _ t1 t2) (n1 + n2)
+  | c3 : forall t n, p t n -> p t (S n).
+
+  (* c1: For any leaf containing any integer with size being (at least) 1.
+     c2: For any node having (at least) as many leafs in its subtrees as the size.
+     c3: "at least"
+   *)
+
+End P.
+
+(** More on the 'induction' Tactic **)
+
+Print plus_assoc'.
+
+Theorem plus_comm' : forall n m : nat, n + m = m + n.
+Proof.
+  induction n as [| n'].
+    intros m. rewrite plus_0_r. reflexivity.
+    intros m. simpl. rewrite -> IHn'. rewrite <- plus_n_Sm. reflexivity.
+Qed.
+
+Theorem plus_comm'' : forall n m : nat, n + m = m + n.
+Proof.
+  induction m as [| m'].
+    simpl. rewrite -> plus_0_r. reflexivity.
+    simpl. rewrite <- IHm'. rewrite <- plus_n_Sm. reflexivity.
+Qed.
+
+Definition P_plus_assoc (n m o : nat) : Prop :=
+  (n + m) + o = n + (m + o).
+
+Theorem plus_assoc'' : forall n m o : nat, P_plus_assoc n m o.
+Proof.
+Admitted. (* FIXME *)
+
+Definition P_plus_comm (n m : nat) : Prop :=
+  n + m = m + n.
+
+Theorem plus_comm''' : forall n m : nat, n + m = m + n.
+Proof.
+Admitted. (* FIXME *)
+
+Fixpoint true_upto_n__true_everywhere (n : nat) (P : nat -> Prop) :=
+  match n with
+    | O => forall m : nat, even m
+    | S n => even (S n) -> true_upto_n__true_everywhere n P
+  end.
+
+Example trrue_upto_n_example:
+  (true_upto_n__true_everywhere 3 (fun n => even n))
+  =
+  (even 3 -> even 2 -> even 1 -> forall m : nat, even m).
+Proof.
+  reflexivity.
+Qed.
+
+(** Building Proof Objects Incrementally **)
+
+Definition b_16_atmpt_1 : beautiful 16 :=
+  admit.
+Definition b_16_atmpt_2 : beautiful 16 :=
+  b_sum 5 11 admit admit.
+Definition b_16_atmpt_3 : beautiful 16 :=
+  b_sum 5 11 b_5 admit.
+Definition b_16_atmpt_4 : beautiful 16 :=
+  b_sum 5 11 b_5 (b_sum 5 6 admit admit).
+Definition b_16_atmpt_5 : beautiful 16 :=
+  b_sum 5 11 b_5 (b_sum 5 6 b_5 admit).
+Definition b_16_atmpt_6 : beautiful 16 :=
+  b_sum 5 11 b_5 (b_sum 5 6 b_5 (b_sum 3 3 admit admit)).
+Definition b_16 : beautiful 16 :=
+  b_sum 5 11 b_5 (b_sum 5 6 b_5 (b_sum 3 3 b_3 b_3)).
+
+(* Aditional Exercises *)
+
+Inductive pal {X : Type} : list X -> Prop :=
+| pal_0 : pal []
+| pal_1 : forall x : X, pal [x]
+| pal_2 : forall (x : X) (l : list X), pal l -> pal (x :: snoc l x).
+
+Theorem pal__append_rev : forall (X : Type) (l : list X), pal (l ++ rev l).
+Proof.
+  intros.
+  induction l.
+    simpl. constructor.
+    simpl. rewrite <- snoc_with_append. constructor. apply IHl.
+Qed.
+
+Theorem pal_rev_absorb : forall (X : Type) (l : list X), pal l -> l = rev l.
+Proof.
+  intros. induction H.
+    reflexivity.
+    reflexivity.
+    simpl. rewrite rev_snoc. rewrite <- IHpal. reflexivity.
+Qed.
+
+Theorem palindrome_converse:
+  forall (X : Type) (l : list X), l = rev l -> pal l.
+Proof.
+Admitted. (* FIXME *)
+
+Inductive subsequence {X : Type} : list X -> list X -> Prop :=
+| stop : forall (l2 : list X),
+           subsequence [] l2
+| drop : forall (x : X) (l1 l2 : list X),
+           subsequence l1 l2 -> subsequence l1 (x :: l2)
+| keep : forall (x : X) (l1 l2 : list X),
+           subsequence l1 l2 -> subsequence (x :: l1) (x :: l2).
+
+Theorem subsequence_reflexive:
+  forall (X : Type) (l : list X), subsequence l l.
+Proof.
+  intros. induction l.
+    apply stop.
+    apply keep. apply IHl.
+Qed.
+
+Theorem subsequence_postfix:
+  forall (X : Type) (l1 l2 l3 : list X), subsequence l1 l2 -> subsequence l1 (l2 ++ l3).
+Proof.
+  intros. induction H.
+    apply stop.
+    simpl. apply drop. apply IHsubsequence.
+    simpl. apply keep. apply IHsubsequence.
+Qed.
+
+Theorem subsequence_transitive:
+  forall (X : Type) (l1 l2 l3 : list X),
+    subsequence l1 l2 -> subsequence l2 l3 -> subsequence l1 l3.
+Proof.
+  intros X l1 l2 l3 H1. induction H1.
+    intros H2. apply stop.
+    intros H2. apply IHsubsequence.
