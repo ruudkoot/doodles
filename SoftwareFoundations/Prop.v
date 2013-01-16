@@ -618,3 +618,65 @@ Proof.
   intros X l1 l2 l3 H1. induction H1.
     intros H2. apply stop.
     intros H2. apply IHsubsequence.
+Admitted. (* FIXME *)
+
+Print foo.
+
+Module foo_ind_principle.
+
+  Inductive foo (X : Set) (Y : Set) : Set :=
+  | foo1 : X -> foo X Y
+  | foo2 : Y -> foo X Y
+  | foo3 : foo X Y -> foo X Y.
+  
+  (* foo_ind : forall (X Y : Set) (P : foo X Y -> Prop),
+                      (forall x : X, P (foo1 X Y x)) ->
+                      (forall y : Y, P (foo2 X Y y)) ->
+                      (forall f : foo X Y, P f -> P (foo3 X Y f)) ->
+                      forall f : foo X Y, P f
+   *)
+
+  Check foo_ind.
+
+End foo_ind_principle.
+
+Module bar_ind_principle.
+
+  Inductive bar : Set :=
+  | bar1 : nat -> bar
+  | bar2 : bar -> bar
+  | bar3 : bool -> bar -> bar.
+
+  Check bar_ind.
+
+End bar_ind_principle.
+
+Inductive no_longer_than (X : Set) : (list X) -> nat -> Prop :=
+| nlt_nil  : forall n, no_longer_than X [] n
+| nlt_cons : forall x l n, no_longer_than X l n -> no_longer_than X (x::l) (S n)
+| nlt_succ : forall l n, no_longer_than X l n -> no_longer_than X l (S n).
+
+(* no_longer_than_ind
+        : forall (X : Set) (P : list X -> nat -> Prop),
+          (forall n : nat, P [] n) ->
+          (forall (x : X) (l : list X) (n : nat),
+           no_longer_than X l n -> P l n -> P (x :: l) (S n)) ->
+          (forall (l : list X) (n : nat),
+           no_longer_than X l n -> P l n -> P l (S n)) ->
+          forall (l : list X) (n : nat), no_longer_than X l n -> P l n
+*)
+
+Check no_longer_than_ind.
+
+Inductive R : nat -> list nat -> Prop :=
+| c1 : R 0 []
+| c2 : forall n l, R n l -> R (S n) (n :: l)
+| c3 : forall n l, R (S n) l -> R n l.
+
+Definition r1 : R 2 [1,0] :=
+  c2 _ _ (c2 _ _ c1).
+
+Definition r2 : R 1 [1,2,1,0] :=
+  c3 _ _ (c2 _ _ (c3 _ _ (c3 _ _ (c2 _ _ (c2 _ _ (c2 _ _ c1)))))).
+
+(* R 6 [3,2,1,0] cannot be proven *)
