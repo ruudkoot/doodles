@@ -586,13 +586,14 @@ Inductive ceval : com -> state -> state -> Prop :=
 | E_IfFalse : forall st st' b1 c1 c2,
                 beval st b1 = false -> c2 / st || st' ->
                 (IFB b1 THEN c1 ELSE c2 FI) / st || st'
-| E_WhileEnd : forall st b1 c1,
+| E_WhileEnd : forall b1 st c1,
                  beval st b1 = false ->
                  (WHILE b1 DO c1 END) / st || st
 | E_WhileLoop : forall st st' st'' b1 c1,
-                  beval st b1 = true -> c1 / st || st' ->
+                  beval st b1 = true ->
+                  c1 / st || st' ->
                   (WHILE b1 DO c1 END) / st' || st'' ->
-                  (WHILE b1 DO c1 END) / st' || st''
+                  (WHILE b1 DO c1 END) / st || st''
 where "c1 '/' st '||' st'" := (ceval c1 st st').
 
 Example ceval_example1:
@@ -651,13 +652,126 @@ Proof.
   intros c st st1 st2 E1 E2.
   generalize dependent st2.
   induction E1; intros st2 E2; inversion E2; subst.
+    (* E_Skip *)
     reflexivity.
+    (* E_Ass *)
     reflexivity.
+    (* E_Seq *)
     assert (st' = st'0) as EQ1. apply IHE1_1; assumption.
       subst st'0.
       apply IHE1_2.
       assumption.
-    
+    (* E_IfTrue *)
+    apply IHE1. assumption.
+    rewrite H in H5. inversion H5.
+    (* E_IfFalse *)
+    rewrite H in H5. inversion H5.
+    apply IHE1. assumption.
+    (* E_WhileEnd *)
+    reflexivity.
+    rewrite H in H2. inversion H2.
+    (* E_WhileLoop *)
+    rewrite H in H4. inversion H4.
+    assert (st' = st'0) as EQ1.
+      apply IHE1_1; assumption.
+    subst st'0.
+    apply IHE1_2. assumption.
+Qed.
+
+(*** Reasoning About Programs ***)
+
+(** Basic Examples **)
+
+Theorem plus2_spec:
+  forall st n st', st X = n -> plus2 / st || st' -> st' X = n + 2.
+Proof.
+  intros st n st' HX Heval.
+  inversion Heval. subst. simpl.
+  apply update_eq.
+Qed.
+
+Theorem XtimesYinZ_spec:
+  forall st x y st', st X = x -> st Y = y -> XtimesYinZ / st || st' -> st' Z = x * y.
+Proof.
+  intros st x y st' HX HY Heval.
+  inversion Heval. subst. simpl.
+  apply update_eq.
+Qed.
+
+Theorem loop_never_stops:
+  forall st st', ~(loop / st || st').
+Proof.
+  intros st st' contra.
+  unfold loop in contra.
+  remember (WHILE BTrue DO SKIP END) as loopdef.
+  induction loopdef; inversion Heqloopdef.
+    subst. clear Heqloopdef.
+    induction contra.
+      apply IHloopdef.
+        reflexivity.
+        constructor.
+      induction H.
+Admitted. (* FIXME *)
+
+Fixpoint no_whiles (c : com) : bool :=
+  match c with
+    | SKIP => true
+    | _ ::= _ => true
+    | c1 ; c2 => andb (no_whiles c1) (no_whiles c2)
+    | IFB _ THEN ct ELSE cf FI => andb (no_whiles ct) (no_whiles cf)
+    | WHILE _ DO _ END => false
+  end.
+
+Inductive no_whilesR : com -> Prop :=
+| NW_Skip : no_whilesR SKIP
+| NW_Ass : forall X a, no_whilesR (X ::= a)
+| NW_Seq : forall c1 c2, no_whilesR c1 -> no_whilesR c2 -> no_whilesR (c1 ; c2)
+| NW_If : forall b c1 c2,
+            no_whilesR c1 -> no_whilesR c2 -> no_whilesR (IFB b THEN c1 ELSE c2 FI).
+
+Theorem no_whiles_eqv:
+  forall c, no_whiles c = true <-> no_whilesR c.
+Proof.
+  intro c.
+  split.
+    intro H. induction c.
+      constructor.
+      constructor.
+      inversion H. apply andb_true_iff in H1. inversion H1. constructor.
+        apply IHc1. apply H0.
+        apply IHc2. apply H2.
+      inversion H. apply andb_true_iff in H1. inversion H1. constructor.
+        apply IHc1. apply H0.
+        apply IHc2. apply H2.
+      inversion H.
+    intro H. induction c.
+      reflexivity.
+      reflexivity.
+      simpl. inversion H. subst. apply andb_true_iff. split.
+        apply IHc1. apply H2.
+        apply IHc2. apply H3.
+      simpl. inversion H. subst. apply andb_true_iff. split.
+        apply IHc1. apply H2.
+        apply IHc2. apply H4.
+      inversion H.
+Qed.
+
+(* no_whiles_terminating *)
+
+(** Proving a Program Correct (Optional) **)
+
+Print fact_body.
+Print fact_loop.
+Print fact_com.
+
+Fixpoint real_fact (n : nat) : nat :=
+  match n with
+    | O => 1
+    | S n' => n * (real_fact n')
+  end.
+
+Definition fact_invariant (x : nat) (st : state) :=
+  (st Y) * (real_fact (st Z)) = real_fact x.
+
+
       
-        
-        
