@@ -19,3 +19,11 @@ data Expr a
 (%)        = App
 let_ e1 e2 = Let e1 (\x -> e2 (Var x))
 lam_ e     = Lam (\x -> e (Var x))
+
+data Value = N Int | F (Value -> Value)
+
+eval :: Expr Value -> Value
+eval (Lit i) = N i
+eval (Add e1 e2) = add (eval e1) (eval e2)
+eval (IfZero e1 e2 e3) = ifZero (eval e1) (eval e2) (eval e3)
+eval (Var x) = x
