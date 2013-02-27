@@ -1,0 +1,3 @@
+[submodule "NNHPPA/Data"]
+	path = NNHPPA/Data
+	url = git@github.com:ruudkoot/data-util.git

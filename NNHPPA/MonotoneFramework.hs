@@ -81,6 +81,9 @@ blocks (Seq s1 s2)    = blocks s1 `union` blocks s2
 blocks (If b l s1 s2) = singleton (Test b l) `union` blocks s1 `union` blocks s2
 blocks (While b l s)  = singleton (Test b l) `union` blocks s
 
+block :: Stmt -> Lab -> Blocks
+block 
+
 labels :: Stmt -> Set Lab
 labels s = S.map prjL (blocks s)
     where prjL :: Blocks -> Lab
