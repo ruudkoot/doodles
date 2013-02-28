@@ -150,10 +150,10 @@ solve nodes constraints
                         = add w p t
                       f    (t@(FUN _ _ _) :<: p ) (w, d, e)
                         = add w p t
-                      f cc@(p1            :<: p2) (w, d, e)
-                        = (w, d,                  adjust (cc:) p1 e)
                       f cc@(IMPL t p p1   :<: p2) (w, d, e)
-                        = (w, d, adjust (cc:) p $ adjust (cc:) p1 e)
+                        = (w, d, adjust (cc:) p $ adjust (cc:) (l2r p1) e)
+                      f cc@(p1            :<: p2) (w, d, e)
+                        = (w, d,                  adjust (cc:) (l2r p1) e)
 
                       add :: Worklist -> RHS -> LHS -> (Worklist, DataArray, EdgeArray)
                       add w q u
@@ -165,6 +165,9 @@ solve nodes constraints
         
         recordSolution :: ()
         recordSolution = undefined
+        
+l2r :: LHS -> RHS
+l2r = undefined
 
 -- | Examples
 
