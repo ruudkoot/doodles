@@ -3,14 +3,12 @@
 
 module ConstraintBasedAnalysis where
 
-import           Data.Foldable
-import           Data.Monoid
-
-import           Data.Map        (Map)
+import Data.List.Util (worklist)
+import Data.Map (Map, (!), adjust, insert)
 import qualified Data.Map as Map
-import           Data.Set        (Set, empty, singleton, union, fromList)
+import Data.Set (Set, empty, singleton, union, member, fromList, toList)
 import qualified Data.Set as Set
-import           Data.Set.Util   (unionMap)
+import Data.Set.Util (unionMap)
 
 toMap = Map.fromList
 
@@ -124,40 +122,43 @@ c' e = c e
 type Cache     = Map Lab  (Set Term)
 type Env       = Map Name (Set Term)
 
-type Val       = Term
+type Val       = LHS
 
-type Node      = Either Lab Name
+type Node      = RHS
 type Worklist  = [Node]
 type DataArray = Map Node (Set Val)
 type EdgeArray = Map Node [Constr]
 
 solve :: [Node] -> Set Constr -> (Cache, Env)
 solve nodes constraints
-    = let (w, d, e) = initialize
-          ()        = buildGraph
-          ()        = iteration
-          ()        = recordSolution
+    = -- FIXME: State monad...
+      let (w , d , e ) = initialize
+          (w', d', e') = buildGraph w d e
+          ()           = iteration
+          ()           = recordSolution
        in undefined
     where
         initialize :: (Worklist, DataArray, EdgeArray)
         initialize
             = ([], toMap (map (, empty) nodes), toMap (map (, []) nodes))
-        
-        buildGraph :: ()
-        buildGraph d e
-            = worklist f (d, e) constraints
-                where f    (t@(FN  _   _) :<: p )
+
+        buildGraph :: Worklist -> DataArray -> EdgeArray -> (Worklist, DataArray, EdgeArray)
+        buildGraph w d e
+            = Set.foldr f (w, d, e) constraints
+                where f :: Constr -> (Worklist, DataArray, EdgeArray) -> (Worklist, DataArray, EdgeArray)
+                      f    (t@(FN  _   _) :<: p ) (d, e)
                         = add p t
-                      f    (t@(FUN _ _ _) :<: p )
+                      f    (t@(FUN _ _ _) :<: p ) (d, e)
                         = add p t
-                      f cc@(p1            :<: p2)
-                        = ((d,                  adjust (cc:) p1 e), w)
-                      f cc@(IMPL t p p1   :<: p2)
-                        = ((d, adjust (cc:) p $ adjust (cc:) p1 e), w)
-                      
+                      f cc@(p1            :<: p2) (d, e)
+                        = (w, d,                  adjust (cc:) p1 e)
+                      f cc@(IMPL t p p1   :<: p2) (d, e)
+                        = (w, d, adjust (cc:) p $ adjust (cc:) p1 e)
+
+                      add :: RHS -> LHS -> (Worklist, DataArray, EdgeArray)
                       add q u
-                        | u `member` (d ! q) = ((d, e), [])
-                        | otherwise          = ((adjust (insert u) q d, e), [q])
+                        | u `member` (d ! q) = ((                        d, e), [ ])
+                        | otherwise          = ((adjust (Set.insert u) q d, e), [q])
 
         iteration :: ()
         iteration = undefined
