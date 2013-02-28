@@ -146,19 +146,19 @@ solve nodes constraints
         buildGraph w d e
             = Set.foldr f (w, d, e) constraints
                 where f :: Constr -> (Worklist, DataArray, EdgeArray) -> (Worklist, DataArray, EdgeArray)
-                      f    (t@(FN  _   _) :<: p ) (d, e)
-                        = add p t
-                      f    (t@(FUN _ _ _) :<: p ) (d, e)
-                        = add p t
-                      f cc@(p1            :<: p2) (d, e)
+                      f    (t@(FN  _   _) :<: p ) (w, d, e)
+                        = add w p t
+                      f    (t@(FUN _ _ _) :<: p ) (w, d, e)
+                        = add w p t
+                      f cc@(p1            :<: p2) (w, d, e)
                         = (w, d,                  adjust (cc:) p1 e)
-                      f cc@(IMPL t p p1   :<: p2) (d, e)
+                      f cc@(IMPL t p p1   :<: p2) (w, d, e)
                         = (w, d, adjust (cc:) p $ adjust (cc:) p1 e)
 
-                      add :: RHS -> LHS -> (Worklist, DataArray, EdgeArray)
-                      add q u
-                        | u `member` (d ! q) = ((                        d, e), [ ])
-                        | otherwise          = ((adjust (Set.insert u) q d, e), [q])
+                      add :: Worklist -> RHS -> LHS -> (Worklist, DataArray, EdgeArray)
+                      add w q u
+                        | u `member` (d ! q) = (    w,                         d, e)
+                        | otherwise          = (q : w, adjust (Set.insert u) q d, e)
 
         iteration :: ()
         iteration = undefined
