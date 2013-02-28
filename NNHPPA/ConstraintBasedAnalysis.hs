@@ -51,7 +51,7 @@ data S :: H -> * where
     C    :: Lab                  -> S h
     FN   :: Name -> Expr         -> LHS
     FUN  :: Name -> Name -> Expr -> LHS
-    IMPL :: Term -> RHS  -> LHS  -> LHS
+    IMPL :: Term -> RHS  -> RHS  -> LHS
 
 deriving instance Eq   (S a)
 deriving instance Ord  (S a)
@@ -123,8 +123,8 @@ type Cache     = Map Lab  (Set Term)
 type Env       = Map Name (Set Term)
 
 type Val       = LHS
-
 type Node      = RHS
+
 type Worklist  = [Node]
 type DataArray = Map Node (Set Val)
 type EdgeArray = Map Node [Constr]
@@ -146,14 +146,16 @@ solve nodes constraints
         buildGraph w d e
             = Set.foldr f (w, d, e) constraints
                 where f :: Constr -> (Worklist, DataArray, EdgeArray) -> (Worklist, DataArray, EdgeArray)
-                      f    (t@(FN  _   _) :<: p ) (w, d, e)
+                      f (t@(FN  _   _)  :<: p ) (w, d, e)
                         = add w p t
-                      f    (t@(FUN _ _ _) :<: p ) (w, d, e)
+                      f (t@(FUN _ _ _)  :<: p ) (w, d, e)
                         = add w p t
-                      f cc@(IMPL t p p1   :<: p2) (w, d, e)
-                        = (w, d, adjust (cc:) p $ adjust (cc:) (l2r p1) e)
-                      f cc@(p1            :<: p2) (w, d, e)
-                        = (w, d,                  adjust (cc:) (l2r p1) e)
+                      f cc@(IMPL t p p1 :<: p2) (w, d, e)
+                        = (w, d, adjust (cc:) p $ adjust (cc:) p1    e)
+                      f cc@(R x         :<: p2) (w, d, e)
+                        = (w, d,                  adjust (cc:) (R x) e)
+                      f cc@(C l         :<: p2) (w, d, e)
+                        = (w, d,                  adjust (cc:) (C l) e)
 
                       add :: Worklist -> RHS -> LHS -> (Worklist, DataArray, EdgeArray)
                       add w q u
@@ -161,14 +163,13 @@ solve nodes constraints
                         | otherwise          = (q : w, adjust (Set.insert u) q d, e)
 
         iteration :: ()
-        iteration = undefined
+        iteration
+            = undefined
         
         recordSolution :: ()
-        recordSolution = undefined
+        recordSolution
+            = undefined
         
-l2r :: LHS -> RHS
-l2r = undefined
-
 -- | Examples
 
 ex320 = (App (Fn "x" (Var "x", 1), 2) (Fn "y" (Var "y", 3), 4), 5)
