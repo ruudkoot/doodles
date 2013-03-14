@@ -134,7 +134,7 @@ solve nodes constraints
     = -- FIXME: State monad...
       let (w , d , e ) = initialize
           (w', d', e') = buildGraph w d e
-          ()           = iteration
+          _            = iteration w' d' e'
           ()           = recordSolution
        in undefined
     where
@@ -162,13 +162,16 @@ solve nodes constraints
                         | u `member` (d ! q) = (    w,                         d, e)
                         | otherwise          = (q : w, adjust (Set.insert u) q d, e)
 
-        iteration :: ()
-        iteration
-            = undefined
+        iteration :: [a] -> t -> t1 -> (t, t1)
+        iteration w d e
+            = worklist f (d, e) w
+                where f = undefined
+
         
         recordSolution :: ()
         recordSolution
             = undefined
+            
         
 -- | Examples
 
