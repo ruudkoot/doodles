@@ -93,4 +93,81 @@ Proof.
   intros b e1 e2 st st'.
   split; intros H.
     inversion H; subst.
-      destruct b.
+      apply E_IfFalse.
+        simpl. rewrite negb_false_iff. assumption.
+        assumption.
+      apply E_IfTrue.
+        simpl. rewrite negb_true_iff. assumption.
+        assumption.
+    inversion H; subst.
+      apply E_IfFalse.
+        simpl in H5. rewrite negb_true_iff in H5. assumption.
+        assumption.
+      apply E_IfTrue.
+        simpl in H5. rewrite negb_false_iff in H5. assumption.
+        assumption.
+Qed.
+
+Theorem WHILE_false:
+  forall b c, bequiv b BFalse -> cequiv (WHILE b DO c END) SKIP.
+Proof.
+  intros b c Hb.
+  split; intros H.
+    inversion H; subst.
+      apply E_Skip.
+      rewrite Hb in H2. inversion H2.
+    inversion H; subst.
+      apply E_WhileEnd. rewrite Hb. reflexivity.
+Qed.
+
+Lemma WHILE_true_nonterm:
+  forall b c st st', bequiv b BTrue -> ~(WHILE b DO c END / st || st').
+Proof.
+  intros b c st st' Hb.
+  intros H.
+  remember (WHILE b DO c END) as cw.
+  induction H; inversion Heqcw; subst; clear Heqcw.
+    rewrite Hb in H. inversion H.
+    apply IHceval2. reflexivity.
+Qed.
+
+Theorem WHILE_true:
+  forall b c, bequiv b BTrue -> cequiv (WHILE b DO c END) (WHILE BTrue DO SKIP END).
+Proof.
+  intros b c Hb.
+  split; intros H.
+    inversion H; subst.
+      rewrite Hb in H4. inversion H4.
+      apply WHILE_true_nonterm in H6.
+        inversion H6.
+        assumption.
+    inversion H; subst.
+      inversion H4.
+      apply WHILE_true_nonterm in H6.
+        inversion H6.
+        unfold bequiv. intros st0. reflexivity.
+Qed.
+
+Theorem loop_unrolling:
+  forall b c, cequiv (WHILE b DO c END) (IFB b THEN (c; WHILE b DO c END) ELSE SKIP FI).
+Proof.
+  intros b c st st'.
+  split; intros Hce.
+    inversion Hce; subst.
+      apply E_IfFalse. assumption. apply E_Skip.
+      apply E_IfTrue. assumption. apply E_Seq with (st' := st'0). assumption. assumption.
+    inversion Hce; subst.
+      inversion H5; subst.
+      apply E_WhileLoop with (st' := st'0).
+        assumption.
+        assumption.
+        assumption.
+      inversion H5; subst. apply E_WhileEnd. assumption.
+Qed.
+
+Theorem seq_assoc:
+  forall c1 c2 c3, cequiv ((c1; c2); c3) (c1; (c2; c3)).
+Proof.
+  intros c1 c2 c3.
+  split; intros H.
+    
