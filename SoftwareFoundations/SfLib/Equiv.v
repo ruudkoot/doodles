@@ -655,3 +655,169 @@ Qed.
 
 (* Soundness of (0 + n) Elimination, Redux *)
 
+Fixpoint optimize_0plus_aexp (a : aexp) : aexp :=
+  match a with
+    | ANum n => ANum n
+    | AId i => AId i
+    | APlus (ANum 0) a2 => optimize_0plus_aexp a2
+    | APlus a1 a2 => APlus (optimize_0plus_aexp a1) (optimize_0plus_aexp a2)
+    | AMinus a1 a2 => AMinus (optimize_0plus_aexp a1) (optimize_0plus_aexp a2)
+    | AMult a1 a2 => AMult (optimize_0plus_aexp a1) (optimize_0plus_aexp a2)
+  end.
+
+Fixpoint optimize_0plus_bexp (b : bexp) : bexp :=
+  match b with
+    | BTrue => BTrue
+    | BFalse => BFalse
+    | BEq a1 a2 => BEq (optimize_0plus_aexp a1) (optimize_0plus_aexp a2)
+    | BLe a1 a2 => BLe (optimize_0plus_aexp a1) (optimize_0plus_aexp a2)
+    | BNot b1 => BNot (optimize_0plus_bexp b1)
+    | BAnd b1 b2 => BAnd (optimize_0plus_bexp b1) (optimize_0plus_bexp b2)
+  end.
+
+Fixpoint optimize_0plus_com (c : com) : com :=
+  match c with
+    | SKIP => SKIP
+    | i ::= a => i ::= optimize_0plus_aexp a
+    | c1 ; c2 => optimize_0plus_com c1 ; optimize_0plus_com c2
+    | IFB b THEN c1 ELSE c2 FI =>
+      IFB optimize_0plus_bexp b THEN optimize_0plus_com c1 ELSE optimize_0plus_com c2 FI
+    | WHILE b DO c END =>
+      WHILE optimize_0plus_bexp b DO optimize_0plus_com c END
+  end.
+
+Theorem optimize_0plus_aexp_sound:
+  atrans_sound optimize_0plus_aexp.
+Proof.
+  unfold atrans_sound. intros a. unfold aequiv. intros st.
+  induction a; simpl;
+    (* ANum, AId *)
+      try reflexivity;
+    (* AMinus, AMult *)
+      try (destruct (optimize_0plus_aexp a1);
+           destruct (optimize_0plus_aexp a2);
+           rewrite IHa1;
+           rewrite IHa2;
+           reflexivity).
+    (* APlus *)
+      destruct (optimize_0plus_aexp a1).
+      destruct (optimize_0plus_aexp a2).
+      rewrite IHa1. rewrite IHa2.
+Admitted. (* FIXME *)
+
+Theorem optimize_0plus_bexp_sound:
+  btrans_sound optimize_0plus_bexp.
+Proof.
+  unfold btrans_sound. intros b. unfold bequiv. intros st.
+  induction b; simpl.
+    reflexivity.
+    reflexivity.
+    rewrite <-2 optimize_0plus_aexp_sound; reflexivity.
+    rewrite <-2 optimize_0plus_aexp_sound; reflexivity.
+    rewrite IHb. reflexivity.
+    rewrite IHb1. rewrite IHb2. reflexivity.
+Qed.
+
+Theorem optimize_0plus_com_sound:
+  ctrans_sound optimize_0plus_com.
+Proof.
+  unfold ctrans_sound. intros c.
+  induction c; simpl.
+    apply refl_cequiv.
+    apply CAss_congruence. apply optimize_0plus_aexp_sound.
+    apply CSeq_congruence; assumption.
+    apply CIf_congruence. apply optimize_0plus_bexp_sound. assumption. assumption.
+    apply CWhile_congruence. apply optimize_0plus_bexp_sound. assumption.
+Qed.
+
+(*** Proving That Programs Are Not Equivalent ***)
+
+Fixpoint subst_aexp (i : id) (u : aexp) (a : aexp) : aexp :=
+  match a with
+    | ANum n => ANum n
+    | AId i' => if beq_id i i' then u else AId i'
+    | APlus a1 a2 => APlus (subst_aexp i u a1) (subst_aexp i u a2)
+    | AMinus a1 a2 => AMinus (subst_aexp i u a1) (subst_aexp i u a2)
+    | AMult a1 a2 => AMult (subst_aexp i u a1) (subst_aexp i u a2)
+  end.
+
+Example subst_aexp_ex:
+  subst_aexp X (APlus (ANum 42) (ANum 53)) (APlus (AId Y) (AId X))
+  = 
+  (APlus (AId Y) (APlus (ANum 42) (ANum 53))).
+Proof.
+  reflexivity.
+Qed.
+
+Definition subst_equiv_property :=
+  forall i1 i2 a1 a2,
+    cequiv (i1 ::= a1; i2 ::= a2) (i1 ::= a1; i2 ::= subst_aexp i1 a1 a2).
+
+Theorem subst_inequiv:
+  ~ subst_equiv_property.
+Proof.
+  unfold subst_equiv_property. intros Contra.
+  remember (X ::= APlus (AId X) (ANum 1); Y ::= AId X) as c1.
+  remember (X ::= APlus (AId X) (ANum 1); Y ::= APlus (AId X) (ANum 1)) as c2.
+  assert (cequiv c1 c2) by (subst; apply Contra).
+
+  remember (update (update empty_state X 1) Y 1) as st1.
+  remember (update (update empty_state X 1) Y 2) as st2.
+  assert (H1: c1 / empty_state || st1);
+    assert (H2: c2 / empty_state || st2);
+      try (subst;
+           apply E_Seq with (st' := (update empty_state X 1));
+           apply E_Ass;
+           reflexivity
+          ).
+  apply H in H1.
+  
+  assert (Hcontra: st1 = st2)
+    by (apply (ceval_deterministic c2 empty_state); assumption).
+  assert (Hcontra': st1 Y = st2 Y)
+    by (rewrite Hcontra; reflexivity).
+  subst.
+  inversion Hcontra'.
+Qed.
+
+Inductive var_not_used_in_aexp (X : id) : aexp -> Prop :=
+| VNUNum : forall n, var_not_used_in_aexp X (ANum n)
+| VNUId : forall Y, X <> Y -> var_not_used_in_aexp X (AId Y)
+| VNUPlus : forall a1 a2, var_not_used_in_aexp X a1 ->
+                          var_not_used_in_aexp X a2 ->
+                          var_not_used_in_aexp X (AMinus a1 a2)
+| VNUMult : forall a1 a2, var_not_used_in_aexp X a1 ->
+                          var_not_used_in_aexp X a2 ->
+                          var_not_used_in_aexp X (AMult a1 a2).
+
+Lemma aeval_weakening:
+  forall i st a ni, var_not_used_in_aexp i a -> aeval (update st i ni) a = aeval st a.
+Proof.
+  intros i st a ni H.
+  induction H.
+    reflexivity.
+    apply update_neq. apply not_eq_beq_id_false. assumption.
+    simpl. rewrite IHvar_not_used_in_aexp1. rewrite IHvar_not_used_in_aexp2. reflexivity.
+    simpl. rewrite IHvar_not_used_in_aexp1. rewrite IHvar_not_used_in_aexp2. reflexivity.
+Qed.
+
+Definition better_subst_equiv_property:
+  forall i1 i2 a1 a2,
+    var_not_used_in_aexp i1 a1 ->
+    cequiv (i1 ::= a1; i2 ::= a2) (i1 ::= a1; i2 ::= subst_aexp i1 a1 a2).
+Proof.
+  intros i1 i2 a1 a2 Hvnu. unfold cequiv. intros st st'.
+  split; intros Hce.
+    inversion Hce. subst. rename H1 into Hce1. rename H4 into Hce2.
+    apply E_Seq with (st' := st'0).
+      assumption.
+      (* inversion Hce2. subst. rewrite <- (aeval_weakening i2  Hvnu). *) admit.
+    inversion Hce. subst. rename H1 into Hce1. rename H4 into Hce2.
+    apply E_Seq with (st' := st'0).
+      assumption.
+      admit.
+Qed. (* FIXME *)
+
+(* MISSING unnamed AND 'inequiv_exercise' *)
+
+(*** Extended exercise: Non-deterministic Imp ***)
