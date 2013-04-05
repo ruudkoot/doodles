@@ -424,3 +424,234 @@ Proof.
       apply CAss_congruence. unfold aequiv. simpl. symmetry. apply minus_diag.
       apply refl_cequiv.
 Qed.
+
+(*** Case Study: Constant Folding ***)
+
+(** Soundness of Program Transformations **)
+
+Definition atrans_sound (atrans : aexp -> aexp) : Prop :=
+  forall (a : aexp), aequiv a (atrans a).
+
+Definition btrans_sound (btrans : bexp -> bexp) : Prop :=
+  forall (b : bexp), bequiv b (btrans b).
+
+Definition ctrans_sound (ctrans : com -> com) : Prop :=
+  forall (c : com), cequiv c (ctrans c).
+
+(** The Constant-Folding Transformation **)
+
+Fixpoint fold_constants_aexp (a : aexp) : aexp :=
+  match a with
+    | ANum n => ANum n
+    | AId i => AId i
+    | APlus a1 a2 =>
+      match (fold_constants_aexp a1, fold_constants_aexp a2) with
+        | (ANum n1, ANum n2) => ANum (n1 + n2)
+        | (a1', a2') => APlus a1' a2'
+      end
+    | AMinus a1 a2 =>
+      match (fold_constants_aexp a1, fold_constants_aexp a2) with
+        | (ANum n1, ANum n2) => ANum (n1 - n2)
+        | (a1', a2') => AMinus a1' a2'
+      end
+    | AMult a1 a2 =>
+      match (fold_constants_aexp a1, fold_constants_aexp a2) with
+        | (ANum n1, ANum n2) => ANum (n1 * n2)
+        | (a1', a2') => AMult a1' a2'
+      end
+  end.
+
+Example fold_aexp_ex1:
+  fold_constants_aexp (AMult (APlus (ANum 1) (ANum 2)) (AId X)) = AMult (ANum 3) (AId X).
+Proof.
+  reflexivity.
+Qed.
+
+Example fold_aexp_ex2:
+  fold_constants_aexp
+    (AMinus (AId X) (APlus (AMult (ANum 0) (ANum 6)) (AId Y)))
+      =
+    AMinus (AId X) (APlus (ANum 0) (AId Y)).
+Proof.
+  reflexivity.
+Qed.
+
+Fixpoint fold_constants_bexp (b : bexp) : bexp :=
+  match b with
+      | BTrue => BTrue
+      | BFalse => BFalse
+      | BEq a1 a2 =>
+        match (fold_constants_aexp a1, fold_constants_aexp a2) with
+          | (ANum n1, ANum n2) => if beq_nat n1 n2 then BTrue else BFalse
+          | (a1', a2') => BEq a1' a2'
+        end
+      | BLe a1 a2 =>
+        match (fold_constants_aexp a1, fold_constants_aexp a2) with
+          | (ANum n1, ANum n2) => if ble_nat n1 n2 then BTrue else BFalse
+          | (a1', a2') => BLe a1' a2'
+        end
+      | BNot b1 =>
+        match (fold_constants_bexp b1) with 
+          | BTrue => BFalse
+          | BFalse => BTrue
+          | b1' => BNot b1'
+        end
+      | BAnd b1 b2 =>
+        match (fold_constants_bexp b1, fold_constants_bexp b2) with
+            | (BTrue, BTrue) => BTrue
+            | (BTrue, BFalse) => BFalse
+            | (BFalse, BTrue) => BFalse
+            | (BFalse, BFalse) => BFalse
+            | (b1', b2') => BAnd b1' b2'
+        end
+  end.
+
+Example fold_bexp_ex1:
+  fold_constants_bexp (BAnd BTrue (BNot (BAnd BFalse BTrue))) = BTrue.
+Proof.
+  reflexivity.
+Qed.
+
+Fixpoint fold_constants_com (c : com) : com :=
+  match c with
+    | SKIP => SKIP
+    | i ::= a => CAss i (fold_constants_aexp a)
+    | c1 ; c2 => (fold_constants_com c1) ; (fold_constants_com c2)
+    | IFB b THEN c1 ELSE c2 FI =>
+      match fold_constants_bexp b with
+        | BTrue => fold_constants_com c1
+        | BFalse => fold_constants_com c2
+        | b' => IFB b' THEN fold_constants_com c1 ELSE fold_constants_com c2 FI
+      end
+    | WHILE b DO c END =>
+      match fold_constants_bexp b with
+        | BTrue => WHILE BTrue DO SKIP END
+        | BFalse => SKIP
+        | b' => WHILE b' DO (fold_constants_com c) END
+      end
+  end.
+
+Example fold_com_ex1:
+  fold_constants_com
+    (X ::= APlus (ANum 4) (ANum 5);
+     Y ::= AMinus (AId X) (ANum 3);
+     IFB BEq (AMinus (AId X) (AId Y)) (APlus (ANum 2) (ANum 4)) THEN
+         SKIP
+     ELSE
+         Y ::= ANum 0
+     FI;
+     IFB BLe (ANum 0) (AMinus (ANum 4) (APlus (ANum 2) (ANum 1))) THEN
+         Y ::= ANum 0
+     ELSE
+         SKIP
+     FI;
+     WHILE BEq (AId Y) (ANum 0) DO
+           X ::= APlus (AId X) (ANum 1)
+     END
+    )
+  =
+    (X ::= ANum 9;
+     Y ::= AMinus (AId X) (ANum 3);
+     IFB BEq (AMinus (AId X) (AId Y)) (ANum 6) THEN
+         SKIP
+     ELSE
+         (Y ::= ANum 0)
+     FI;
+     Y ::= ANum 0;
+     WHILE BEq (AId Y) (ANum 0) DO
+           X ::= APlus (AId X) (ANum 1)
+     END
+    ).
+Proof.
+  reflexivity.
+Qed.
+
+(** Soundness of Constant Folding **)
+
+Theorem fold_constants_aexp_sound:
+  atrans_sound fold_constants_aexp.
+Proof.
+  unfold atrans_sound. intros a. unfold aequiv. intros st.
+  induction a; simpl;
+    try reflexivity;
+    try (destruct (fold_constants_aexp a1);
+         destruct (fold_constants_aexp a2);
+         rewrite IHa1;
+         rewrite IHa2;
+         reflexivity).
+Qed.
+
+Theorem fold_constants_bexp_sound:
+  btrans_sound fold_constants_bexp.
+Proof.
+  unfold btrans_sound. intros b. unfold bequiv. intros st.
+  induction b;
+    (* BTrue, BFalse *)
+      try reflexivity.
+    (* BEq *)
+      rename a into a1. rename a0 into a2. simpl.
+      remember (fold_constants_aexp a1) as a1'.
+      remember (fold_constants_aexp a2) as a2'.
+      replace (aeval st a1) with (aeval st a1') by
+          (subst a1'; rewrite <- fold_constants_aexp_sound; reflexivity).
+      replace (aeval st a2) with (aeval st a2') by
+          (subst a2'; rewrite <- fold_constants_aexp_sound; reflexivity).
+      destruct a1'; destruct a2'; try reflexivity.
+        simpl. destruct (beq_nat n n0); reflexivity.
+    (* BLe *)
+      rename a into a1. rename a0 into a2. simpl.
+      remember (fold_constants_aexp a1) as a1'.
+      remember (fold_constants_aexp a2) as a2'.
+      replace (aeval st a1) with (aeval st a1') by
+          (subst a1'; rewrite <- fold_constants_aexp_sound; reflexivity).
+      replace (aeval st a2) with (aeval st a2') by
+          (subst a2'; rewrite <- fold_constants_aexp_sound; reflexivity).
+      destruct a1'; destruct a2'; try reflexivity.
+        simpl. destruct (ble_nat n n0); reflexivity.
+    (* BNot *)
+      simpl. remember (fold_constants_bexp b) as b'.
+      rewrite IHb.
+      destruct b'; reflexivity.
+    (* BAnd *)
+      simpl.
+      remember (fold_constants_bexp b1) as b1'.
+      remember (fold_constants_bexp b2) as b2'.
+      rewrite IHb1. rewrite IHb2.
+      destruct b1'; destruct b2'; reflexivity.
+Qed.
+
+Theorem fold_constants_com_sound:
+  ctrans_sound fold_constants_com.
+Proof.
+  unfold ctrans_sound. intros c.
+  induction c; simpl.
+    (* SKIP *)
+      apply refl_cequiv.
+    (* ::= *)
+      apply CAss_congruence. apply fold_constants_aexp_sound.
+    (* ; *)
+      apply CSeq_congruence; assumption.
+    (* IFB *)
+      assert (bequiv b (fold_constants_bexp b)).
+        apply fold_constants_bexp_sound.
+      remember (fold_constants_bexp b) as b'.
+      destruct b'; try (apply CIf_congruence; assumption).
+        (* BTrue *)
+          apply trans_cequiv with c1; try assumption.
+            apply IFB_true; assumption.
+        (* BFalse *)
+          apply trans_cequiv with c2; try assumption.
+            apply IFB_false; assumption.
+    (* WHILE *)
+       assert (bequiv b (fold_constants_bexp b)).
+         apply fold_constants_bexp_sound.
+       remember (fold_constants_bexp b) as b'.
+       destruct b'; try (apply CWhile_congruence; assumption).
+         (* BTrue *)
+           apply WHILE_true. assumption.
+         (* BFalse *)
+           apply WHILE_false. assumption.
+Qed.
+
+(* Soundness of (0 + n) Elimination, Redux *)
+
