@@ -310,4 +310,74 @@ Proof with auto.
   generalize dependent t'.
   induction HT; intros t' HE; try (solve by inversion).
     (* T_If *)
-      
+      inversion HE; subst.
+        (* ST_IFTrue *)
+          assumption.
+        (* ST_IFFalse *)
+          assumption.
+        (* ST_IF *)
+          apply T_If; try assumption.
+          apply IHHT1; assumption.
+    (* T_Succ *)
+      inversion HE; subst.
+        (* ST_Succ *)
+      constructor. apply IHHT; assumption.
+    (* T_Pred *)
+      inversion HE; subst.
+        (* ST_PredZero *)
+          assumption.
+        (* ST_PredSucc *)
+          inversion HT; subst. assumption.
+        (* ST_Pred *)
+          constructor. apply IHHT. assumption.
+    (* T_Iszero *)
+      inversion HE; subst.
+        (* ST_IszeroZero *)
+          constructor.
+        (* ST_IszeroSucc *)
+          constructor.
+        (* ST_Iszero *)
+          constructor.
+          apply IHHT; assumption.
+Qed.
+
+Theorem preservation':
+  forall t t' T, has_type t T -> t ==> t' -> has_type t' T.
+Proof with eauto.
+  intros t t' T HT HE.
+  generalize dependent T.
+  induction HE; intros T HT.
+    (* ST_IfTrue *)
+      inversion HT; subst.
+        assumption.
+    (* ST_IfFalse *)
+      inversion HT; subst.
+        assumption.
+    (* ST_If *)
+      inversion HT; subst.
+        constructor; try assumption.
+        apply IHHE; assumption.
+    (* ST_Succ *)
+      inversion HT; subst.
+        constructor; try assumption.
+        apply IHHE; assumption.
+    (* ST_PredZero *)
+      inversion HT; subst.
+        assumption.
+    (* ST_PredSucc *)
+      inversion HT; subst.
+        inversion H1; subst. assumption.
+    (* ST_Pred *)
+      inversion HT; subst.
+        constructor. apply IHHE. assumption.
+    (* ST_IszeroZero *)
+      inversion HT; subst.
+        constructor.
+    (* ST_IszeroSucc *)
+      inversion HT; subst.
+        constructor.
+    (* ST_Iszero *)
+      inversion HT; subst.
+        constructor. apply IHHE. assumption.
+Qed.
+
