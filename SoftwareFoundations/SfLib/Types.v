@@ -381,3 +381,19 @@ Proof with eauto.
         constructor. apply IHHE. assumption.
 Qed.
 
+(** Type Soundness **)
+
+Definition multistep := (multi step).
+Notation "t1 '==>*' t2" := (multistep t1 t2) (at level 40).
+
+Corollary soundness:
+  forall t t' T, has_type t T -> t ==>* t' -> ~(stuck t').
+Proof.
+  intros t t' T HT HE.
+  induction HE; intros [R S].
+    (* base *)
+      destruct (progress x T HT); auto.
+    (* inductive *)
+      apply IHHE. apply (preservation x y T HT H). unfold stuck.
+      split; auto.
+Qed.
