@@ -325,19 +325,45 @@ Module Temp4.
     | ST_IfTrue : forall t1 t2, tif ttrue t1 t2 ==> t1
     | ST_IfFalse : forall t1 t2, tif tfalse t1 t2 ==> t2
     | ST_If : forall t1 t1' t2 t3, t1 ==> t1' -> tif t1 t2 t3 ==> tif t1' t2 t3
-    | ST_Shortcut : forall t1 t2 t3,
+    | ST_ShortCircuit : forall t1 t2 t3,
                       value t2 -> value t3 -> t2 = t3 -> tif t1 t2 t3 ==> t2
     where " t '==>' t' " := (step t t').
+
+    Definition bool_step_prop4 :=
+      tif (tif ttrue ttrue ttrue) tfalse tfalse ==> tfalse.
+
+    Example bool_step_prop4_holds:
+      bool_step_prop4.
+    Proof.
+      repeat constructor.
+    Qed.
 
     Theorem step_not_deterministic:
       ~deterministic step.
     Proof.
-    Admitted. (* FIXME *)
+      unfold not. unfold deterministic. intros.
+      assert (R1: tif (tif ttrue ttrue ttrue) tfalse tfalse ==> tfalse)
+        by (repeat constructor).
+      assert (R2: tif (tif ttrue ttrue ttrue) tfalse tfalse ==> tif ttrue tfalse tfalse)
+        by (repeat constructor).
+      assert (Contra: tfalse = tif ttrue tfalse tfalse)
+        by (exact (H (tif (tif ttrue ttrue ttrue) tfalse tfalse) tfalse (tif ttrue tfalse tfalse) R1 R2)).
+      inversion Contra.
+    Qed.
 
     Theorem strong_progress:
       forall t, value t \/ (exists t', t ==> t').
     Proof.
-    Admitted. (* FIXME *)
+      intros t. induction t.
+        left. constructor.
+        left. constructor.
+        right. inversion IHt1.
+          inversion H; subst.
+            exists t2. constructor.
+            exists t3. constructor.
+          inversion H; subst.
+            exists (tif x t2 t3). constructor. assumption.
+    Qed.
 
     (* Yes, any one of them. *)
 
@@ -349,15 +375,11 @@ End Temp4.
 
 (** Definitions **)
 
-(* Already in SfLib!
+Inductive multi {X : Type} (R : relation X) : relation X :=
+| multi_refl : forall (x : X), multi R x x
+| multi_step : forall (x y z : X), R x y -> multi R y z -> multi R x z.
 
-  Inductive multi {X : Type} (R : relation X) : relation X :=
-  | multi_refl : forall (x : X), multi R x x
-  | multi_step : forall (x y z : X), R x y -> multi R y z -> multi R x z.
-
-*)
-
-Theorem mutli_R:
+Theorem multi_R:
   forall (X : Type) (R : relation X) (x y : X), R x y -> (multi R) x y.
 Proof.
   intros X R x y H.
@@ -367,7 +389,8 @@ Proof.
 Qed.
 
 Theorem multi_trans:
-  forall (X : Type) (R : relation X) (x y z : X), multi R x y -> multi R y z -> multi R x z.
+  forall (X : Type) (R : relation X) (x y z : X),
+    multi R x y -> multi R y z -> multi R x z.
 Proof.
   intros X R x y z G H.
   induction G.
@@ -440,6 +463,7 @@ Proof.
   inversion P1 as [P11 P12]; clear P1.
   inversion P2 as [P21 P22]; clear P2.
   generalize dependent y2.
+
   induction y1; intros.
     (* t = C n *)
     inversion P11; subst.
@@ -452,7 +476,150 @@ Proof.
       subst. symmetry. apply H2.
 Admitted. (* FIXME *)
 
-(* FIXME: STUFF MISSING HERE *)
+Definition normalizing {X : Type} (R : relation X) :=
+  forall t, exists t', (multi R) t t' /\ normal_form R t'.
+
+Lemma multistep_congr_1:
+  forall t1 t1' t2, t1 ==>* t1' -> P t1 t2 ==>* P t1' t2.
+Proof.
+  intros t1 t1' t2 H.
+  induction H.
+    apply multi_refl.
+    apply multi_step with (P y t2).
+      apply ST_Plus1. apply H.
+      apply IHmulti.
+Qed.
+
+Lemma multistep_congr_2:
+  forall t1 t2 t2', value t1 -> t2 ==>* t2' -> P t1 t2 ==>* P t1 t2'.
+Proof.
+  intros t1 t2 t2' Hv Hr.
+  induction Hr.
+    apply multi_refl.
+    apply multi_step with (P t1 y).
+      apply ST_Plus2. apply Hv. apply H.
+      apply IHHr.
+Qed.
+
+Theorem step_normalizing:
+  normalizing step.
+Proof.
+  unfold normalizing. intros t.
+  induction t.
+    (* t = C n *)
+      exists (C n).
+      split.
+        apply multi_refl.
+        apply nf_same_as_value. apply v_const.
+    (* t = P t1 t2 *)
+      inversion IHt1 as [t1' H1]. inversion H1 as [H11 H12]. clear IHt1. clear H1.
+      inversion IHt2 as [t2' H2]. inversion H2 as [H21 H22]. clear IHt2. clear H2.
+      
+      apply nf_same_as_value in H12. inversion H12 as [n1].
+      apply nf_same_as_value in H22. inversion H22 as [n2].
+
+      subst.
+
+      exists (C (n1 + n2)).
+      split.
+        (* multi step *)
+          apply multi_trans with (P (C n1) t2).
+            apply multistep_congr_1. assumption.
+            apply multi_trans with (P (C n1) (C n2)).
+              apply multistep_congr_2.
+                apply v_const.
+                assumption.
+            apply multi_R. apply ST_PlusConstConst.
+        (* normal_form *)
+            apply nf_same_as_value. apply v_const.
+Qed.
+
+(** Equivalence of Big-Step and Small-Step Reduction **)
+
+Theorem eval__multistep:
+  forall t n, t || n -> t ==>* C n.
+Proof.
+  intros t n H.
+  induction H.
+    (* t = Cn *)
+      apply multi_refl.
+    (* t = P t1 t2 *)
+      apply multi_trans with (P (C n1) t2).
+        apply multistep_congr_1. assumption.
+        apply multi_trans with (P (C n1) (C n2)).
+          apply multistep_congr_2.
+            apply v_const.
+            assumption.
+          apply multi_R. apply ST_PlusConstConst.
+Qed.
+
+Lemma step__eval:
+  forall t t' n, t ==> t' -> t' || n -> t || n.
+Proof.
+  intros t t' n Hs. generalize dependent n.
+  induction Hs; intros n Hb; inversion Hb; subst.
+    (* St_PlusConstConst *)
+      apply E_Plus. apply E_Const. apply E_Const.
+    (* St_Plus1 *)
+      apply IHHs in H1.
+      apply E_Plus. assumption. assumption.
+    (* St_Plus2 *)
+      apply IHHs in H4.
+      apply E_Plus. assumption. assumption.
+Qed.
+
+Theorem multistep__eval:
+  forall t v, normal_form_of t v -> exists n, v = C n /\ t || n.
+Proof.
+  intros t v H.
+  inversion H.
+  induction H0.
+    (* 1 *)
+      admit.
+    (* 2 *)
+Admitted. (* FIXME *)
+
+(** Additional Exercises **)
+
+Module Combined.
+
+  Inductive tm : Type :=
+  | C : nat -> tm
+  | P : tm -> tm -> tm
+  | ttrue : tm 
+  | tfalse : tm
+  | tif : tm -> tm -> tm -> tm.
+
+  Inductive value : tm -> Prop :=
+  | v_const : forall n, value (C n)
+  | v_true : value ttrue
+  | v_false : value tfalse.
+
+  Reserved Notation " t '==>' t' " (at level 40).
+
+  Inductive step : tm -> tm -> Prop :=
+  | ST_PlusConstConst : forall n1 n2, P (C n1) (C n2) ==> C (n1 + n2)
+  | ST_Plus1 : forall t1 t1' t2, t1 ==> t1' -> P t1 t2 ==> P t1' t2
+  | ST_Plus2 : forall v1 t2 t2', value v1 -> t2 ==> t2' -> P v1 t2 ==> P v1 t2'
+  | ST_IfTrue : forall t1 t2, tif ttrue t1 t2 ==> t1
+  | ST_IfFalse : forall t1 t2, tif tfalse t1 t2 ==> t2
+  | ST_If : forall t1 t1' t2 t3, t1 ==> t1' -> tif t1 t2 t3 ==> tif t1' t2 t3
+  where " t '==>' t' " := (step t t').
+
+  Theorem step_deterministic:
+    deterministic step.
+  Proof.
+    unfold deterministic.
+    intros x t1 t2 H1.
+    generalize dependent t2.
+    induction t1; intros t2 H2.
+
+  Admitted. (* FIXME *)
+
+
+  (* STUFF MISSING *)
+
+End Combined.
 
 (*** Small-Step Imp ***)
 
