@@ -350,4 +350,55 @@ Lemma free_in_context:
   forall x t T Gamma,
     appears_free_in x t -> has_type Gamma t T -> exists T', Gamma x = Some T'.
 Proof.
+  intros x t T Gamma H H0. generalize dependent Gamma. generalize dependent T.
+  induction H; intros; try solve [inversion H0; eauto].
+    (* afi_abs *)
+      inversion H1; subst.
+      apply IHappears_free_in in H7.
+      apply not_eq_beq_id_false in H.
+      rewrite extend_neq in H7; assumption.
+Qed.
+
+Corollary typable_empty__close:
+  forall t T, has_type empty t T -> closed t.
+Proof.
+  unfold closed, not. intros t T Hht x0 Haf.
+Admitted. (* FIXME *)
+
+Lemma context_invariance:
+  forall Gamma Gamma' t T,
+    has_type Gamma t T ->
+    (forall x, appears_free_in x t -> Gamma x = Gamma' x) ->
+    has_type Gamma' t T.
+Proof with eauto.
+  intros Gamma Gamma' t T HT. generalize dependent Gamma'.
+  induction HT; intros Gamma' HF; auto.
+    (* tvar *)
+      apply T_Var. rewrite <- (HF x0). assumption. apply afi_var.
+    (* tabs *)
+      apply T_Abs. apply IHHT. intros. unfold extend.
+      remember (beq_id x0 x1) as e. destruct e...
+      (* reflexivity. apply HF. apply afi_abs.
+         symmetry in Heqe. apply (beq_id_false_not_eq). apply Heqe. apply H. *)
+    (* tapp *)
+      apply T_App with (T11 := T11)...
+Qed.
+
+Lemma substitution_preserves_typing:
+  forall Gamma x U t t' T,
+    has_type (extend Gamma x U) t T ->
+    has_type empty t' U ->
+    has_type Gamma ([x:=t']t) T.
+Proof with eauto.
+  intros Gamma x0 U t.
+    induction t; intros; auto.
+      (* tvar *)
+        remember (beq_id i x0) as b. destruct b.
+          remember (beq_id_eq i x0 Heqb) as e. rewrite e. simpl. rewrite <- beq_id_refl.
+            
+      (* tapp *)
+      (* tabs *)
+      (* ttrue *)
+      (* tfalse *)
+      (* tif *)
   
