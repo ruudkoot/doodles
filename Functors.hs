@@ -39,7 +39,7 @@ class Functor' f p | f -> p where
 
 instance Functor' [] Co where
     map = Prelude.map
-
+    
 -- | Variance-parameterized bifunctors
 
 class Bifunctor f p q | f -> p, f -> q where
