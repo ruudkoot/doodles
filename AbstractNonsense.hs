@@ -127,3 +127,5 @@ instance Bimonad Or Or where
 
 -- * tree bimonad
 -- * free bimonad
+
+-- | Higher-order functors (e.g. Control.Functor.HigherOrder & Hinze's scoping for algebraic effects)
