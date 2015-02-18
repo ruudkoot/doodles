@@ -17,12 +17,13 @@ instance Functor V2 where
 instance Functor V3 where
     fmap f (V3 x y z) = V3 (f x) (f y) (f z)
 
-type l ~> m = forall x. l x -> m x
+type a → b = a -> b                     -- morphism
+type l ⇒ m = forall x. l x → m x        -- natural transformations
 
-h :: V2 ~> V3
+h :: V2 ⇒ V3
 h (V2 x y) = V3 y x x
 
-naturality :: (Functor l, Functor m, Eq (l x -> m y)) => (l ~> m) -> (x -> y) -> Bool
+naturality :: (Functor l, Functor m, Eq (l x -> m y)) => (l ⇒ m) -> (x -> y) -> Bool
 naturality h k = h . fmap k == fmap k . h
 
 -- | Monads
@@ -31,15 +32,15 @@ type Id     x =      x
 type O  f g x = f (g x)
 
 class Functor f => Monad f where
-    return :: Id      ~> f
-    join   :: f `O` f ~> f
+    return :: Id      ⇒ f
+    join   :: f `O` f ⇒ f
 
 -- | Yoneda lemma
 
-type a ~~ b = (a -> b, b -> a)
+type a ≃ b = (a → b, b → a)             -- isomorphism
+type a ≅ b = (a ⇒ b, b ⇒ a)             -- natural isomorphism
 
-type YonedaEmbedding f a = forall r. (a -> r) -> f r
+type Y f a = forall r. (a → r) → f r    -- Yoneda embedding
 
-yonedaLemma :: Functor f => YonedaEmbedding f a ~~ f a
+yonedaLemma :: Functor f => Y f ≅ f
 yonedaLemma = (\f -> f id, flip fmap)
-
