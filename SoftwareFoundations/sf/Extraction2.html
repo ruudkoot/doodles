@@ -1,0 +1,157 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"/>
+<link href="coqdoc.css" rel="stylesheet" type="text/css"/>
+<title>Extraction2: Extracting ML from Coq, Part 2</title>
+</head>
+
+<script>
+<!--
+  function toggleDisplay(id)
+  {
+     var elt = document.getElementById(id);
+     if (elt.style.display == 'none') {
+       elt.style.display = 'block';
+     } else {
+       elt.style.display = 'none';
+     }
+  }
+  function hideAll(cls)
+  {
+    var testClass = new RegExp("(^|s)" + cls + "(s|$)");
+    var tag = tag || "*";
+    var elements = document.getElementsByTagName("div");
+    var current;
+    var length = elements.length;
+    for(var i=0; i<length; i++){
+      current = elements[i];
+      if(testClass.test(current.className)) {
+        current.style.display = 'none';
+      }
+    }
+  }
+// --> 
+</script>
+
+<body onLoad="hideAll('proofscript')">
+<body>
+
+<div id="page">
+
+<div id="header">
+</div>
+
+<div id="main">
+
+<h1 class="libtitle">Extraction2<span class="subtitle">Extracting ML from Coq, Part 2</span></h1>
+
+<div class="code code-tight">
+</div>
+
+<div class="doc">
+
+</div>
+<div class="code code-tight">
+
+<br/>
+<span class="comment">(*&nbsp;$Date:&nbsp;2012-05-03&nbsp;17:52:38&nbsp;-0400&nbsp;(Thu,&nbsp;03&nbsp;May&nbsp;2012)&nbsp;$&nbsp;*)</span><br/>
+
+<br/>
+</div>
+
+<div class="doc">
+Let's take a look at a slightly fancier way of using Coq's
+    extraction facilities.  Instead of translating a functional
+    program in Coq into a functional program in OCaml, we'll extract
+    the computational content of an interesting <i>proof</i> &mdash; the proof
+    that the STLC is normalizing.  The result will be an evaluator
+    that takes well-typed STLC terms to their final normal forms.
+
+<div class="paragraph"> </div>
+
+    Note that this is a slightly unusual way of using Coq.  In the
+    words of Adam Chlipala...
+
+<div class="paragraph"> </div>
+
+        <i>Many fans of the Curry-Howard correspondence support the idea of
+        extracting programs from proofs. In reality, few users of Coq and
+        related tools do any such thing. Instead, extraction is better
+        thought of as an optimization that reduces the runtime costs of
+        expressive typing</i>. (Chlipala, CPDT)
+
+<div class="paragraph"> </div>
+
+    However, it's interesting to see that it's possible at all!  (And
+    to think about what the extracted program does.) 
+<div class="paragraph"> </div>
+
+<a name="lab931"></a><h1 class="section">Extracting a Normalizer</h1>
+
+</div>
+<div class="code code-space">
+
+<br/>
+<span class="id" type="keyword">Require</span> <span class="id" type="keyword">Import</span> <span class="id" type="var">Extraction</span>.<br/>
+<span class="id" type="keyword">Require</span> <span class="id" type="keyword">Import</span> <span class="id" type="var">NormInType</span>.<br/>
+
+<br/>
+</div>
+
+<div class="doc">
+The <span class="inlinecode"><span class="id" type="var">NormInType</span></span> module is a variant of the <span class="inlinecode"><span class="id" type="var">Norm</span></span> module with a
+    few significant differences.  The essential point is that, during
+    extraction, everything to do with <span class="inlinecode"><span class="id" type="keyword">Prop</span></span> is <i>erased</i>.  So, to
+    extract a normalizer from a proof of normalization, we need to
+    carry out the essential bits of the normalization proof in <span class="inlinecode"><span class="id" type="keyword">Type</span></span>
+    rather than <span class="inlinecode"><span class="id" type="keyword">Prop</span></span>.
+
+<div class="paragraph"> </div>
+
+    <span class="inlinecode"><span class="id" type="var">NormInType</span></span> also incorporates a copy of the STLC typechecking
+    function from the <span class="inlinecode"><span class="id" type="var">Typechecking</span></span> module and its proof of
+    correctness.  (The function itself is no different from before,
+    and the correctness proof has just a few small differences because
+    of the changes we made to the basic definitions of STLC.)  We need
+    these things because the proof of normalization proceeds by
+    induction on a typing derivation, so the extracted normalization
+    function must be passed a data structure representing a typing
+    derivation.  In <span class="inlinecode"><span class="id" type="var">normdriver.ml</span></span>, we obtain this derivation from
+    the proof that the typechecking algorithm is sound. 
+</div>
+<div class="code code-tight">
+
+<br/>
+<span class="id" type="var">Extraction</span> "norm.ml" <span class="id" type="var">normalization</span> <span class="id" type="var">type_check</span> <span class="id" type="var">type_checking_sound</span>.<br/>
+
+<br/>
+</div>
+
+<div class="doc">
+Take a look at <span class="inlinecode"><span class="id" type="var">normdriver.ml</span></span> to see how this plumbing works in
+    detail. 
+
+<div class="paragraph"> </div>
+
+    Finally, we can compile and execute our normalizer in the same way
+    as we did with our evaluator for <span class="inlinecode"><span class="id" type="var">Imp</span></span>.
+<pre>
+	ocamlc -w -20 -o normdriver norm.mli norm.ml normdriver.ml
+	./normdriver
+</pre>
+
+</div>
+<div class="code code-tight">
+</div>
+</div>
+
+<div id="footer">
+<hr/><a href="coqindex.html">Index</a><hr/>This page has been generated by <a href="http://www.lix.polytechnique.fr/coq/">coqdoc</a>
+</div>
+
+</div>
+
+</body>
+</html>

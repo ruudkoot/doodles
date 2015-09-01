@@ -1,0 +1,35 @@
+<map id="_anonymous_0" name="_anonymous_0">
+<area shape="rect" id="node2" href="Preface.html" title="Preface" alt="" coords="564,36,636,84"/>
+<area shape="rect" id="node5" href="Basics.html" title="&lt;TABLE&gt;" alt="" coords="403,163,797,219"/>
+<area shape="rect" id="node3" href="SfLib.html" title="SfLib" alt="" coords="752,687,824,735"/>
+<area shape="rect" id="node11" href="Imp.html" title="&lt;TABLE&gt;" alt="" coords="453,787,691,843"/>
+<area shape="rect" id="node18" href="Rel.html" title="&lt;TABLE&gt;" alt="" coords="715,787,920,843"/>
+<area shape="rect" id="node4" href="Postscript.html" title="Postscript" alt="" coords="179,1827,261,1875"/>
+<area shape="rect" id="node6" href="Lists.html" title="&lt;TABLE&gt;" alt="" coords="480,267,720,323"/>
+<area shape="rect" id="node7" href="Poly.html" title="&lt;TABLE&gt;" alt="" coords="443,371,757,427"/>
+<area shape="rect" id="node8" href="Gen.html" title="&lt;TABLE&gt;" alt="" coords="464,475,736,531"/>
+<area shape="rect" id="node9" href="Prop.html" title="&lt;TABLE&gt;" alt="" coords="488,579,712,635"/>
+<area shape="rect" id="node10" href="Logic.html" title="&lt;TABLE&gt;" alt="" coords="528,683,672,739"/>
+<area shape="rect" id="node12" href="Equiv.html" title="&lt;TABLE&gt;" alt="" coords="100,891,295,947"/>
+<area shape="rect" id="node13" href="ImpParser.html" title="&lt;TABLE&gt;" alt="" coords="937,891,1161,947"/>
+<area shape="rect" id="node14" href="ImpCEvalFun.html" title="&lt;TABLE&gt;" alt="" coords="369,891,615,947"/>
+<area shape="rect" id="node15" href="Hoare.html" title="&lt;TABLE&gt;" alt="" coords="261,995,403,1051"/>
+<area shape="rect" id="node19" href="Smallstep.html" title="&lt;TABLE&gt;" alt="" coords="460,1099,732,1155"/>
+<area shape="rect" id="node29" href="PE.html" title="&lt;TABLE&gt;" alt="" coords="740,891,913,947"/>
+<area shape="rect" id="node33" href="Extraction.html" title="&lt;TABLE&gt;" alt="" coords="941,995,1149,1051"/>
+<area shape="rect" id="node16" href="HoareList.html" title="&lt;TABLE&gt;" alt="" coords="8,1099,208,1155"/>
+<area shape="rect" id="node17" href="HoareAsLogic.html" title="&lt;TABLE&gt;" alt="" coords="232,1099,435,1155"/>
+<area shape="rect" id="node20" href="Types.html" title="&lt;TABLE&gt;" alt="" coords="519,1203,673,1259"/>
+<area shape="rect" id="node21" href="Stlc.html" title="&lt;TABLE&gt;" alt="" coords="459,1307,733,1363"/>
+<area shape="rect" id="node22" href="MoreStlc.html" title="&lt;TABLE&gt;" alt="" coords="5,1411,328,1467"/>
+<area shape="rect" id="node23" href="Typechecking.html" title="&lt;TABLE&gt;" alt="" coords="352,1411,560,1467"/>
+<area shape="rect" id="node31" href="UseTactics.html" title="&lt;TABLE&gt;" alt="" coords="635,1411,957,1467"/>
+<area shape="rect" id="node32" href="UseAuto.html" title="&lt;TABLE&gt;" alt="" coords="620,1515,972,1571"/>
+<area shape="rect" id="node24" href="References.html" title="&lt;TABLE&gt;" alt="" coords="53,1515,280,1571"/>
+<area shape="rect" id="node25" href="Records.html" title="&lt;TABLE&gt;" alt="" coords="212,1619,423,1675"/>
+<area shape="rect" id="node27" href="Sub.html" title="&lt;TABLE&gt;" alt="" coords="57,1619,188,1675"/>
+<area shape="rect" id="node30" href="Norm.html" title="&lt;TABLE&gt;" alt="" coords="376,1515,576,1571"/>
+<area shape="rect" id="node26" href="RecordSub.html" title="&lt;TABLE&gt;" alt="" coords="116,1723,324,1779"/>
+<area shape="rect" id="node28" href="LibTactics.html" title="LibTactics" alt="" coords="844,1311,924,1359"/>
+<area shape="rect" id="node34" href="Extraction2.html" title="&lt;TABLE&gt;" alt="" coords="684,1619,932,1675"/>
+</map>

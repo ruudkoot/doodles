@@ -40,7 +40,11 @@ class Functor f => Monad f where
 type a ≃ b = (a → b, b → a)             -- isomorphism
 type a ≅ b = (a ⇒ b, b ⇒ a)             -- natural isomorphism
 
-type Y f a = forall r. (a → r) → f r    -- Yoneda embedding
+type Y  f a = forall r. (a → r) → f r    -- Yoneda embedding
 
 yonedaLemma :: Functor f => Y f ≅ f
 yonedaLemma = (\f -> f id, flip fmap)
+
+-- | Godement calculus
+
+type OO k l f x = O (k f) (l f) x

@@ -1,0 +1,45 @@
+Symbols.vo Symbols.glob: Symbols.v
+Preface.vo Preface.glob: Preface.v
+Basics.vo Basics.glob: Basics.v
+Lists.vo Lists.glob: Lists.v Basics.vo
+Poly.vo Poly.glob: Poly.v Lists.vo
+Gen.vo Gen.glob: Gen.v Poly.vo
+Prop.vo Prop.glob: Prop.v Poly.vo
+Logic.vo Logic.glob: Logic.v Prop.vo
+SfLib.vo SfLib.glob: SfLib.v
+Imp.vo Imp.glob: Imp.v SfLib.vo
+ImpParser.vo ImpParser.glob: ImpParser.v SfLib.vo Imp.vo
+ImpCEvalFun.vo ImpCEvalFun.glob: ImpCEvalFun.v Imp.vo
+Extraction.vo Extraction.glob: Extraction.v SfLib.vo ImpCEvalFun.vo Imp.vo ImpParser.vo
+Equiv.vo Equiv.glob: Equiv.v Imp.vo
+Hoare.vo Hoare.glob: Hoare.v Imp.vo
+HoareList.vo HoareList.glob: HoareList.v SfLib.vo
+HoareAsLogic.vo HoareAsLogic.glob: HoareAsLogic.v Hoare.vo
+Rel.vo Rel.glob: Rel.v SfLib.vo
+Smallstep.vo Smallstep.glob: Smallstep.v Imp.vo
+Types.vo Types.glob: Types.v Smallstep.vo
+Stlc.vo Stlc.glob: Stlc.v Types.vo
+Typechecking.vo Typechecking.glob: Typechecking.v Stlc.vo
+MoreStlc.vo MoreStlc.glob: MoreStlc.v Stlc.vo
+Records.vo Records.glob: Records.v Stlc.vo
+References.vo References.glob: References.v Smallstep.vo
+Sub.vo Sub.glob: Sub.v MoreStlc.vo
+RecordSub.vo RecordSub.glob: RecordSub.v MoreStlc.vo
+Norm.vo Norm.glob: Norm.v Stlc.vo
+LibTactics.vo LibTactics.glob: LibTactics.v
+UseTactics.vo UseTactics.glob: UseTactics.v LibTactics.vo Stlc.vo Equiv.vo Imp.vo References.vo SfLib.vo Hoare.vo Sub.vo
+UseAuto.vo UseAuto.glob: UseAuto.v LibTactics.vo Imp.vo Stlc.vo Smallstep.vo References.vo Sub.vo
+PE.vo PE.glob: PE.v Imp.vo
+Postscript.vo Postscript.glob: Postscript.v
+Extraction2.vo Extraction2.glob: Extraction2.v Extraction.vo NormInType.vo
+NormInType.vo NormInType.glob: NormInType.v Stlc.vo
+underconstruction/Animate.vo underconstruction/Animate.glob: underconstruction/Animate.v Stlc.vo
+underconstruction/CompilerCorrectness.vo underconstruction/CompilerCorrectness.glob: underconstruction/CompilerCorrectness.v Imp.vo
+underconstruction/MoreTypechecking.vo underconstruction/MoreTypechecking.glob: underconstruction/MoreTypechecking.v MoreStlc.vo
+underconstruction/symbols.vo underconstruction/symbols.glob: underconstruction/symbols.v
+underconstruction/MoreHoareSplit.vo underconstruction/MoreHoareSplit.glob: underconstruction/MoreHoareSplit.v SfLib.vo
+underconstruction/PilkiewiczFormalizedDecorated.vo underconstruction/PilkiewiczFormalizedDecorated.glob: underconstruction/PilkiewiczFormalizedDecorated.v
+underconstruction/BigPicture.vo underconstruction/BigPicture.glob: underconstruction/BigPicture.v
+underconstruction/Flow.vo underconstruction/Flow.glob: underconstruction/Flow.v Smallstep.vo
+underconstruction/Proc.vo underconstruction/Proc.glob: underconstruction/Proc.v HoareList.vo
+underconstruction/IVL.vo underconstruction/IVL.glob: underconstruction/IVL.v Imp.vo
